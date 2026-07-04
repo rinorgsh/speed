@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "pos-horeca-mobile",
+    "name": "Speed",
     "slug": "pos-horeca-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,7 +19,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
