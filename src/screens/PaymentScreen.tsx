@@ -7,6 +7,7 @@ import { Button } from '../components/Button';
 import { Keypad } from '../components/Keypad';
 import { theme } from '../theme';
 import { useCart } from '../store/useCart';
+import { useAuth } from '../store/useAuth';
 import { printCustomerReceipt } from '../services/printing';
 import { flushOutbox } from '../services/sync';
 import type { PaymentMethod } from '../types';
@@ -68,6 +69,8 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
         setValidating(true);
         await markPaid();
         const current = useCart.getState().order!;
+        // Vente comptoir = sans salle ni table (walk-in).
+        const wasCounter = current.room_id === null && current.table_id === null;
         const printed = await printCustomerReceipt(current, invoice).catch(() => false);
         await flushOutbox();
         setValidating(false);
@@ -84,7 +87,23 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
         }
 
         clear();
-        navigation.reset({ index: 0, routes: [{ name: 'Rooms' }] });
+
+        // Comptoir (pay & go) : on rouvre directement une nouvelle vente comptoir,
+        // avec la Salle en dessous (retour arrière possible). Une vraie table revient
+        // à la Salle comme avant.
+        const auth = useAuth.getState();
+        if (wasCounter && auth.session && auth.server) {
+            useCart.getState().startNew({
+                sessionId: auth.session.id,
+                serverId: auth.server.id,
+                roomId: null,
+                tableId: null,
+                serviceType: current.service_type,
+            });
+            navigation.reset({ index: 1, routes: [{ name: 'Rooms' }, { name: 'Pos' }] });
+        } else {
+            navigation.reset({ index: 0, routes: [{ name: 'Rooms' }] });
+        }
     };
 
     const settled = left <= 0.03;
