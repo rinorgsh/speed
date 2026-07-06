@@ -11,6 +11,7 @@ import { PinScreen } from '../screens/PinScreen';
 import { OpenSessionScreen } from '../screens/OpenSessionScreen';
 import { CloseSessionScreen } from '../screens/CloseSessionScreen';
 import { RoomsScreen } from '../screens/RoomsScreen';
+import { ComptoirScreen } from '../screens/ComptoirScreen';
 import { PosScreen } from '../screens/PosScreen';
 import { CartScreen } from '../screens/CartScreen';
 import { PaymentScreen } from '../screens/PaymentScreen';
@@ -43,6 +44,7 @@ export function RootNavigator() {
                     <Stack.Screen name="OpenSession" component={OpenSessionScreen} options={{ title: 'Ouverture de caisse' }} />
                     <Stack.Screen name="CloseSession" component={CloseSessionScreen} options={{ title: 'Fermeture de caisse' }} />
                     <Stack.Screen name="Rooms" component={RoomsScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="Comptoir" component={ComptoirScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="Pos" component={PosScreen} options={{ title: 'Commande' }} />
                     <Stack.Screen name="Cart" component={CartScreen} options={{ title: 'Panier' }} />
                     <Stack.Screen name="Payment" component={PaymentScreen} options={{ title: 'Paiement' }} />

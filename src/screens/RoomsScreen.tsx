@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Menu as MenuIcon, Wallet, LayoutGrid, Lock, ShoppingBag, Repeat } from 'lucide-react-native';
@@ -41,6 +41,8 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
     const [floorView, setFloorView] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const [opening, setOpening] = useState<number | null>(null); // table en cours d'ouverture
+    const { width } = useWindowDimensions();
+    const isTablet = width >= 700; // iPad -> caisse comptoir dédiée dispo
 
     // Changement de profil -> les salles changent : on resélectionne une salle valide
     // du profil courant (évite d'afficher une salle/onglet d'un autre profil).
@@ -119,6 +121,13 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
         navigation.navigate('Pos');
     };
 
+    // Caisse comptoir (iPad) : vue caisse dédiée (produits + ticket + pavé), sur place par défaut.
+    const openComptoir = () => {
+        if (!session || !server) return;
+        startNew({ sessionId: session.id, serverId: server.id, roomId: null, tableId: null, serviceType: 'dine_in' });
+        navigation.navigate('Comptoir');
+    };
+
     const renderTable = (t: Table) => {
         const isOccupied = occupied.includes(t.id);
         const pendingCount = pending[t.id] ?? 0; // articles pas encore envoyés en cuisine
@@ -147,9 +156,17 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
         <Screen>
             <View style={styles.topbar}>
                 <Text style={styles.server}>{server?.name}</Text>
-                <Pressable onPress={() => setMenuOpen(true)} style={styles.menuBtn} hitSlop={10}>
-                    <MenuIcon color={theme.colors.text} size={30} strokeWidth={2.5} />
-                </Pressable>
+                <View style={styles.topActions}>
+                    {isTablet && (
+                        <Pressable onPress={openComptoir} style={styles.comptoirBtn}>
+                            <ShoppingBag color={theme.colors.text} size={20} />
+                            <Text style={styles.comptoirText}>Comptoir</Text>
+                        </Pressable>
+                    )}
+                    <Pressable onPress={() => setMenuOpen(true)} style={styles.menuBtn} hitSlop={10}>
+                        <MenuIcon color={theme.colors.text} size={30} strokeWidth={2.5} />
+                    </Pressable>
+                </View>
             </View>
 
             {/* Onglets salles (masqués en vue étage) */}
@@ -235,7 +252,10 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
 
 const styles = StyleSheet.create({
     topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacing(3) },
+    topActions: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2.5) },
     server: { color: theme.colors.text, fontSize: 18, fontWeight: '700' },
+    comptoirBtn: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.surfaceAlt, borderRadius: theme.radius.md, paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(2.5), borderWidth: 1, borderColor: theme.colors.border },
+    comptoirText: { color: theme.colors.text, fontWeight: '700', fontSize: 15 },
     menuBtn: { padding: theme.spacing(2), borderRadius: theme.radius.sm, backgroundColor: theme.colors.surfaceAlt },
     tabs: { flexGrow: 0, marginBottom: theme.spacing(4) },
     tabsRow: { flexDirection: 'row', gap: GAP, marginBottom: theme.spacing(4) },

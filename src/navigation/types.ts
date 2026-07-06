@@ -7,6 +7,7 @@ export type RootStackParamList = {
     OpenSession: undefined;
     CloseSession: undefined;
     Rooms: undefined;
+    Comptoir: undefined;
     Pos: undefined;
     Cart: undefined;
     Payment: undefined;
