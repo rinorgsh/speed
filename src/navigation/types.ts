@@ -11,4 +11,5 @@ export type RootStackParamList = {
     Pos: undefined;
     Cart: undefined;
     Payment: undefined;
+    Split: undefined;
 };

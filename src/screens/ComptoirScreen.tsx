@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Delete, LayoutGrid, Banknote, CreditCard } from 'lucide-react-native';
+import { Delete, LayoutGrid, Banknote, CreditCard, Search, X } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
 import { OptionsModal } from '../components/OptionsModal';
 import { theme } from '../theme';
@@ -54,6 +54,13 @@ export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackP
         () => (activeCategoryId ? allProducts.filter((p) => p.category_id === activeCategoryId) : []),
         [allProducts, activeCategoryId],
     );
+
+    // Recherche : filtre sur TOUS les produits par nom (ignore la catégorie).
+    const [search, setSearch] = useState('');
+    const [searchActive, setSearchActive] = useState(false);
+    const q = searchActive ? search.trim().toLowerCase() : '';
+    const shown = q ? allProducts.filter((p) => p.name.toLowerCase().includes(q)) : products;
+    useEffect(() => { if (!searchActive) setSearch(''); }, [searchActive]);
 
     // Ouvre une commande comptoir au montage si aucune n'est active.
     useEffect(() => {
@@ -192,7 +199,7 @@ export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackP
             {items.map((c) => {
                 const active = activeId === c.id;
                 return (
-                    <Pressable key={c.id} onPress={() => onSelect(c.id)} style={[styles.tab, active && styles.tabActive]}>
+                    <Pressable key={c.id} onPress={() => onSelect(c.id)} style={[styles.tab, active && { backgroundColor: c.color ?? theme.colors.surfaceAlt, borderColor: c.color ?? theme.colors.borderStrong }]}>
                         <Text style={[styles.tabText, active && styles.tabTextActive]}>{c.name}</Text>
                     </Pressable>
                 );
@@ -217,17 +224,43 @@ export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackP
                                 </Pressable>
                             ))}
                         </View>
-                        <Pressable onPress={() => navigation.navigate('Rooms')} style={styles.salleBtn}>
-                            <LayoutGrid color={theme.colors.text} size={18} />
-                            <Text style={styles.salleText}>Salle</Text>
-                        </Pressable>
+                        <View style={styles.topRight}>
+                            <Pressable onPress={() => setSearchActive((v) => !v)} style={styles.iconBtn}>
+                                <Search color={theme.colors.text} size={20} />
+                            </Pressable>
+                            <Pressable onPress={() => navigation.navigate('Rooms')} style={styles.salleBtn}>
+                                <LayoutGrid color={theme.colors.text} size={18} />
+                                <Text style={styles.salleText}>Salle</Text>
+                            </Pressable>
+                        </View>
                     </View>
 
-                    {renderTabs(roots, rootId, selectRoot)}
-                    {children.length > 0 && renderTabs(children, childId, setChildId)}
+                    {searchActive ? (
+                        <View style={styles.searchRow}>
+                            <Search color={theme.colors.textMuted} size={18} />
+                            <TextInput
+                                style={styles.searchInput}
+                                placeholder="Rechercher un produit…"
+                                placeholderTextColor={theme.colors.textFaint}
+                                value={search}
+                                onChangeText={setSearch}
+                                autoFocus
+                                returnKeyType="search"
+                                autoCorrect={false}
+                            />
+                            <Pressable onPress={() => setSearchActive(false)} hitSlop={8}>
+                                <X color={theme.colors.textMuted} size={18} />
+                            </Pressable>
+                        </View>
+                    ) : (
+                        <>
+                            {renderTabs(roots, rootId, selectRoot)}
+                            {children.length > 0 && renderTabs(children, childId, setChildId)}
+                        </>
+                    )}
 
                     <ScrollView style={{ flex: 1, marginTop: theme.spacing(2) }} contentContainerStyle={[styles.grid, { gap: GAP }]}>
-                        {products.map((p) => (
+                        {shown.map((p) => (
                             <Pressable
                                 key={p.id}
                                 onPress={() => onProduct(p)}
@@ -239,7 +272,7 @@ export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackP
                                 {!p.available && <Text style={styles.badge86}>86</Text>}
                             </Pressable>
                         ))}
-                        {!products.length && <Text style={styles.empty}>Aucun produit.</Text>}
+                        {!shown.length && <Text style={styles.empty}>Aucun produit.</Text>}
                     </ScrollView>
                 </View>
 
@@ -338,15 +371,19 @@ const styles = StyleSheet.create({
     svcBtn: { paddingHorizontal: theme.spacing(3.5), paddingVertical: theme.spacing(2), borderRadius: theme.radius.pill },
     svcBtnOn: { backgroundColor: theme.colors.primary },
     svcText: { color: theme.colors.textMuted, fontWeight: '700', fontSize: 13 },
-    svcTextOn: { color: '#fff' },
+    svcTextOn: { color: theme.colors.onPrimary },
+    topRight: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2) },
+    iconBtn: { width: 44, height: 44, borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' },
     salleBtn: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.surfaceAlt, borderRadius: theme.radius.md, paddingHorizontal: theme.spacing(3.5), paddingVertical: theme.spacing(2.5), borderWidth: 1, borderColor: theme.colors.border },
     salleText: { color: theme.colors.text, fontWeight: '700', fontSize: 14 },
 
+    searchRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.md, paddingHorizontal: theme.spacing(3), height: 46, marginTop: theme.spacing(1) },
+    searchInput: { flex: 1, color: theme.colors.text, fontSize: 15, height: '100%' },
+
     tabsContent: { gap: 8, paddingVertical: theme.spacing(1.5) },
     tab: { height: 48, paddingHorizontal: theme.spacing(4), borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
-    tabActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     tabText: { color: theme.colors.textMuted, fontWeight: '800', fontSize: 15 },
-    tabTextActive: { color: '#fff' },
+    tabTextActive: { color: theme.colors.onAccent },
 
     grid: { flexDirection: 'row', flexWrap: 'wrap', paddingBottom: theme.spacing(3) },
     product: { borderRadius: theme.radius.md, padding: theme.spacing(2.5), justifyContent: 'space-between' },
@@ -390,7 +427,7 @@ const styles = StyleSheet.create({
     modeCell: { backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border },
     modeCellOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     modeText: { color: theme.colors.textMuted, fontSize: 14, fontWeight: '700' },
-    modeTextOn: { color: '#fff' },
+    modeTextOn: { color: theme.colors.onPrimary },
     backCell: { backgroundColor: theme.colors.dangerSoft, borderWidth: 1, borderColor: theme.colors.danger },
 
     pays: { flexDirection: 'row', gap: theme.spacing(2.5), paddingVertical: theme.spacing(3) },

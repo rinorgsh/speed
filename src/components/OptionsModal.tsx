@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
     chip: { paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(2.5), borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
     chipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     chipText: { color: theme.colors.textMuted, fontWeight: '600' },
-    chipTextOn: { color: '#fff', fontWeight: '700' },
+    chipTextOn: { color: theme.colors.onPrimary, fontWeight: '700' },
     note: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.sm, color: theme.colors.text, paddingHorizontal: theme.spacing(3), height: 50, marginTop: theme.spacing(1), borderWidth: 1, borderColor: theme.colors.border },
     qtyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: theme.spacing(4) },
     qtyLabel: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },

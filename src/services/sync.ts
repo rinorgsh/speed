@@ -12,6 +12,7 @@ import type { Order } from '../types';
  */
 export async function flushOutbox(): Promise<{ pushed: number; failed: boolean }> {
     const outbox = await db.getOutbox();
+    useRealtime.getState().setPending(outbox.length); // alimente l'indicateur de synchro
     if (!outbox.length) return { pushed: 0, failed: false };
 
     try {
@@ -23,6 +24,7 @@ export async function flushOutbox(): Promise<{ pushed: number; failed: boolean }
             const pushed = outbox.find((o) => o.id === a.id) as any;
             await db.markOrderSynced(a.id, a.version, pushed?.updated_at ?? null);
         }
+        useRealtime.getState().setPending((await db.getOutbox()).length);
         return { pushed: accepted.length, failed: false };
     } catch {
         return { pushed: 0, failed: true };

@@ -26,7 +26,11 @@ export function Button({
         danger: theme.colors.danger,
         success: theme.colors.success,
     }[variant];
-    const labelColor = isSecondary ? theme.colors.text : theme.colors.onAccent;
+    const labelColor = isSecondary
+        ? theme.colors.text
+        : variant === 'primary'
+            ? theme.colors.onPrimary // texte foncé sur bouton blanc
+            : theme.colors.onAccent; // texte blanc sur danger / success
 
     return (
         <Pressable

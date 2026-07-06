@@ -35,6 +35,7 @@ interface CartState {
     decrementLine: (lineId: string) => void;
     setLineQty: (lineId: string, qty: number) => void;
     setLinePrice: (lineId: string, price: number) => void;
+    settleLines: (assignments: { lineId: string; qty: number }[]) => void;
     cancelOrder: () => void;
     sendToKitchen: () => KitchenBatch;
     addPayment: (method: PaymentMethod, amount: number) => void;
@@ -213,6 +214,21 @@ export const useCart = create<CartState>((set, get) => ({
         const lines = order.lines.map((l) =>
             l.id === lineId ? { ...l, unit_price_snapshot: p, line_total: lineTotal(p, optionsDelta(l.options_snapshot), l.qty) } : l,
         );
+        commit(set, recompute({ ...order, lines }));
+    },
+
+    // Partage d'addition : retire de la commande mère les unités déjà réglées via un
+    // sous-ticket. On aligne sent_qty sur la nouvelle qty (les articles payés sont
+    // « soldés » — pas d'annulation cuisine, ils ont déjà été préparés).
+    settleLines: (assignments) => {
+        const order = get().order;
+        if (!order) return;
+        const lines = order.lines.map((l) => {
+            const a = assignments.find((x) => x.lineId === l.id);
+            if (!a) return l;
+            const q = Math.max(0, l.qty - a.qty);
+            return { ...l, qty: q, sent_qty: Math.min(l.sent_qty, q), line_total: lineTotal(l.unit_price_snapshot, optionsDelta(l.options_snapshot), q) };
+        });
         commit(set, recompute({ ...order, lines }));
     },
 

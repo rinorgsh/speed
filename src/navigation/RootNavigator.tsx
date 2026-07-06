@@ -15,6 +15,7 @@ import { ComptoirScreen } from '../screens/ComptoirScreen';
 import { PosScreen } from '../screens/PosScreen';
 import { CartScreen } from '../screens/CartScreen';
 import { PaymentScreen } from '../screens/PaymentScreen';
+import { SplitScreen } from '../screens/SplitScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -48,6 +49,7 @@ export function RootNavigator() {
                     <Stack.Screen name="Pos" component={PosScreen} options={{ title: 'Commande' }} />
                     <Stack.Screen name="Cart" component={CartScreen} options={{ title: 'Panier' }} />
                     <Stack.Screen name="Payment" component={PaymentScreen} options={{ title: 'Paiement' }} />
+                    <Stack.Screen name="Split" component={SplitScreen} options={{ title: "Partager l'addition" }} />
                 </>
             )}
         </Stack.Navigator>

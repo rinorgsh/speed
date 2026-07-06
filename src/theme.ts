@@ -1,37 +1,42 @@
 /**
- * Système de design — dark premium (surfaces en couches + bordures subtiles,
- * façon Linear/Vercel). Tous les écrans référencent ces tokens : les affiner
- * met à jour toute l'app de façon cohérente.
+ * Système de design — dark monochrome sobre (identité « speed »). Neutres sans
+ * teinte, accent = blanc (état sélectionné = surface blanche + texte foncé, comme
+ * l'admin web). Tous les écrans référencent ces tokens : les affiner met à jour
+ * toute l'app de façon cohérente.
  */
 export const theme = {
     colors: {
-        // Fond le plus profond -> surfaces de plus en plus claires.
-        bg: '#0B0E15',
-        bgElevated: '#0F131C',
-        surface: '#151A24',
-        surfaceAlt: '#1E2431',
-        border: '#272E3C',
-        borderStrong: '#333B4C',
+        // Fond le plus profond -> surfaces de plus en plus claires (gris neutres).
+        bg: '#0A0A0B',
+        bgElevated: '#101012',
+        surface: '#161618',
+        surfaceAlt: '#202023',
+        border: '#2A2A2E',
+        borderStrong: '#3A3A40',
 
         // Texte.
-        text: '#F4F6FA',
-        textMuted: '#8B94A7',
-        textFaint: '#5C6577',
+        text: '#F6F6F7',
+        textMuted: '#9A9AA2',
+        textFaint: '#64646C',
 
-        // Accent + états.
-        primary: '#6366F1',
-        primarySoft: 'rgba(99,102,241,0.16)',
+        // Accent monochrome : le « sélectionné » est blanc, le texte dessus est foncé.
+        primary: '#FFFFFF',
+        primarySoft: 'rgba(255,255,255,0.10)',
+        onPrimary: '#0A0A0B',
+
+        // États fonctionnels (sobres, réservés au sens : validé / erreur / attention).
         success: '#22C55E',
-        successSoft: 'rgba(34,197,94,0.16)',
+        successSoft: 'rgba(34,197,94,0.15)',
         danger: '#F04452',
-        dangerSoft: 'rgba(240,68,82,0.16)',
+        dangerSoft: 'rgba(240,68,82,0.15)',
         warning: '#F5A524',
 
         // États de table.
-        free: '#151A24',
+        free: '#161618',
         occupied: '#22C55E',
         billRequested: '#F5A524',
 
+        // Texte sur surfaces colorées (danger/success/tuiles produit).
         onAccent: '#FFFFFF',
     },
     radius: { sm: 10, md: 14, lg: 20, pill: 999 },

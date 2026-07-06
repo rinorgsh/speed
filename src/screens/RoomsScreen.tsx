@@ -10,9 +10,8 @@ const PAD = 16; // padding du Screen (spacing 4)
 const GAP = 12;
 const TABLE_COLS = 3;
 const TABLE_SIZE = Math.floor((SCREEN_W - PAD * 2 - GAP * (TABLE_COLS - 1)) / TABLE_COLS);
-const MAX_FILL_TABS = 5; // au-delà : largeur fixe + scroll
-const TAB_FIXED_W = Math.floor((SCREEN_W - PAD * 2 - GAP * (MAX_FILL_TABS - 1)) / MAX_FILL_TABS);
 import { Screen } from '../components/Screen';
+import { SyncBadge } from '../components/SyncBadge';
 import { theme } from '../theme';
 import { useConfig } from '../store/useConfig';
 import { useAuth } from '../store/useAuth';
@@ -151,31 +150,26 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
         <Screen>
             <View style={styles.topbar}>
                 <Text style={styles.server}>{server?.name}</Text>
-                <Pressable onPress={() => setMenuOpen(true)} style={styles.menuBtn} hitSlop={10}>
-                    <MenuIcon color={theme.colors.text} size={30} strokeWidth={2.5} />
-                </Pressable>
+                <View style={styles.topRight}>
+                    <SyncBadge />
+                    <Pressable onPress={() => setMenuOpen(true)} style={styles.menuBtn} hitSlop={10}>
+                        <MenuIcon color={theme.colors.text} size={30} strokeWidth={2.5} />
+                    </Pressable>
+                </View>
             </View>
 
-            {/* Onglets salles (masqués en vue étage) */}
-            {!floorView && (rooms.length <= MAX_FILL_TABS ? (
-                /* ≤ 5 salles : on remplit toute la largeur, tailles égales */
-                <View style={styles.tabsRow}>
+            {/* Onglets salles (masqués en vue étage) : chaque onglet = largeur de son
+                texte, défilement horizontal -> les noms complets sont toujours lisibles
+                (utile pour Event qui a beaucoup de salles). */}
+            {!floorView && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs} contentContainerStyle={styles.tabsContent}>
                     {rooms.map((r) => (
-                        <Pressable key={r.id} onPress={() => setRoomId(r.id)} style={[styles.tab, styles.tabFill, roomId === r.id && styles.tabActive]}>
-                            <Text numberOfLines={1} style={[styles.tabText, roomId === r.id && styles.tabTextActive]}>{r.name}</Text>
-                        </Pressable>
-                    ))}
-                </View>
-            ) : (
-                /* > 5 salles : largeur fixe égale + scroll horizontal */
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs} contentContainerStyle={{ gap: GAP }}>
-                    {rooms.map((r) => (
-                        <Pressable key={r.id} onPress={() => setRoomId(r.id)} style={[styles.tab, { width: TAB_FIXED_W }, roomId === r.id && styles.tabActive]}>
-                            <Text numberOfLines={1} style={[styles.tabText, roomId === r.id && styles.tabTextActive]}>{r.name}</Text>
+                        <Pressable key={r.id} onPress={() => setRoomId(r.id)} style={[styles.tab, roomId === r.id && styles.tabActive]}>
+                            <Text style={[styles.tabText, roomId === r.id && styles.tabTextActive]}>{r.name}</Text>
                         </Pressable>
                     ))}
                 </ScrollView>
-            ))}
+            )}
 
             {floorView ? (
                 /* Vue étage : toutes les salles + leurs tables */
@@ -239,15 +233,15 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
 
 const styles = StyleSheet.create({
     topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacing(3) },
+    topRight: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2.5) },
     server: { color: theme.colors.text, fontSize: 18, fontWeight: '700' },
     menuBtn: { padding: theme.spacing(2), borderRadius: theme.radius.sm, backgroundColor: theme.colors.surfaceAlt },
     tabs: { flexGrow: 0, marginBottom: theme.spacing(4) },
-    tabsRow: { flexDirection: 'row', gap: GAP, marginBottom: theme.spacing(4) },
-    tabFill: { flex: 1 },
-    tab: { paddingHorizontal: theme.spacing(3), paddingVertical: theme.spacing(3.5), borderRadius: theme.radius.md, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' },
+    tabsContent: { gap: GAP, paddingRight: theme.spacing(2) },
+    tab: { paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(3.5), borderRadius: theme.radius.md, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' },
     tabActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     tabText: { color: theme.colors.textMuted, fontWeight: '700', fontSize: 15 },
-    tabTextActive: { color: '#fff' },
+    tabTextActive: { color: theme.colors.onPrimary },
     bg: { flex: 1 },
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingBottom: theme.spacing(4) },
     // Conteneur d'une tuile (pour ancrer le badge qui déborde du coin).
@@ -280,7 +274,7 @@ const styles = StyleSheet.create({
         elevation: 6,
     },
     pendingBadgeText: { color: '#fff', fontWeight: '800', fontSize: 14 },
-    tableFree: { backgroundColor: theme.colors.surface, borderColor: theme.colors.success },
+    tableFree: { backgroundColor: theme.colors.surface, borderColor: theme.colors.borderStrong },
     tableOccupied: { backgroundColor: theme.colors.success, borderColor: theme.colors.success },
     tablePressed: { opacity: 0.8, transform: [{ scale: 0.97 }] },
     tableLabel: { color: theme.colors.text, fontSize: 40, fontWeight: '800' },

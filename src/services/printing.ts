@@ -70,7 +70,7 @@ export async function printCustomerReceipt(order: Order, detailed: boolean): Pro
     const printer = receiptPrinter();
     if (!printer) return false;
 
-    const activeLines = order.lines.filter((l) => !l.voided);
+    const activeLines = order.lines.filter((l) => !l.voided && l.qty > 0);
     const data = buildReceipt(order, activeLines, settings, detailed);
     const ok = await enqueuePrint(printer, data);
 

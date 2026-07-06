@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Banknote, CreditCard, X } from 'lucide-react-native';
+import { Banknote, CreditCard, Users, X } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
 import { Button } from '../components/Button';
 import { Keypad } from '../components/Keypad';
@@ -159,6 +159,12 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
             </ScrollView>
 
             <View style={styles.footer}>
+                {order.payments.length === 0 && order.lines.some((l) => !l.voided && l.qty > 0) && (
+                    <Pressable onPress={() => navigation.navigate('Split')} style={styles.splitBtn}>
+                        <Users color={theme.colors.text} size={18} />
+                        <Text style={styles.splitText}>Partager l'addition</Text>
+                    </Pressable>
+                )}
                 <Button label="Valider le paiement" variant="success" onPress={validate} loading={validating} disabled={!settled} />
             </View>
         </Screen>
@@ -186,4 +192,7 @@ const styles = StyleSheet.create({
     invoiceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: theme.spacing(5) },
     invoiceLabel: { color: theme.colors.text, fontSize: 14 },
     footer: { padding: theme.spacing(4), borderTopWidth: 1, borderColor: theme.colors.border },
+    splitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing(2), height: 50, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, marginBottom: theme.spacing(3) },
+    splitText: { color: theme.colors.text, fontWeight: '700', fontSize: 15 },
 });
+

@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
     modeCell: { backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border },
     modeCellOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     modeText: { color: theme.colors.textMuted, fontSize: 15, fontWeight: '700' },
-    modeTextOn: { color: '#fff' },
+    modeTextOn: { color: theme.colors.onPrimary },
     backCell: { backgroundColor: theme.colors.dangerSoft, borderWidth: 1, borderColor: theme.colors.danger },
 
     secondaryRow: { flexDirection: 'row', gap: theme.spacing(2), paddingHorizontal: theme.spacing(3), paddingTop: theme.spacing(2) },

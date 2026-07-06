@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Dimensions, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Send, ShoppingCart } from 'lucide-react-native';
+import { Search, Send, ShoppingCart, X } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
 import { OptionsModal } from '../components/OptionsModal';
 import { theme } from '../theme';
@@ -41,6 +41,24 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
 
     const [modalProduct, setModalProduct] = useState<Product | null>(null);
     const [sending, setSending] = useState(false);
+    const [search, setSearch] = useState('');
+    const [searchActive, setSearchActive] = useState(false);
+
+    // Recherche : filtre sur TOUS les produits par nom (ignore la catégorie).
+    const q = searchActive ? search.trim().toLowerCase() : '';
+    const shown = q ? allProducts.filter((p) => p.name.toLowerCase().includes(q)) : products;
+
+    // Loupe dans l'en-tête de navigation : n'occupe aucune place à l'écran.
+    useLayoutEffect(() => {
+        navigation.setOptions({
+            headerRight: () => (
+                <Pressable onPress={() => setSearchActive((v) => !v)} hitSlop={12} style={{ paddingHorizontal: 4 }}>
+                    <Search color={theme.colors.text} size={22} />
+                </Pressable>
+            ),
+        });
+    }, [navigation]);
+    useEffect(() => { if (!searchActive) setSearch(''); }, [searchActive]);
 
     const counts = useMemo(() => {
         const m = new Map<number, number>();
@@ -105,7 +123,7 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
                     <Pressable
                         key={c.id}
                         onPress={() => onSelect(c.id)}
-                        style={[big ? styles.cat : styles.subcat, { backgroundColor: active ? (c.color ?? theme.colors.primary) : theme.colors.surface }]}
+                        style={[big ? styles.cat : styles.subcat, { backgroundColor: active ? (c.color ?? theme.colors.surfaceAlt) : theme.colors.surface }]}
                     >
                         <Text style={[big ? styles.catText : styles.subcatText, active ? styles.tabTextActive : styles.tabTextIdle]}>{c.name}</Text>
                     </Pressable>
@@ -116,15 +134,34 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
 
     return (
         <Screen style={{ padding: 0 }} edges={['bottom']}>
-            {/* Catégories (grosses) */}
-            {renderTabs(roots, rootId, selectRoot, true)}
-
-            {/* Sous-catégories (sélection colorée) */}
-            {children.length > 0 && renderTabs(children, childId, setChildId, false)}
+            {/* Recherche (via la loupe de l'en-tête) OU onglets catégories */}
+            {searchActive ? (
+                <View style={styles.searchRow}>
+                    <Search color={theme.colors.textMuted} size={18} />
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Rechercher un produit…"
+                        placeholderTextColor={theme.colors.textFaint}
+                        value={search}
+                        onChangeText={setSearch}
+                        autoFocus
+                        returnKeyType="search"
+                        autoCorrect={false}
+                    />
+                    <Pressable onPress={() => setSearchActive(false)} hitSlop={8}>
+                        <X color={theme.colors.textMuted} size={18} />
+                    </Pressable>
+                </View>
+            ) : (
+                <>
+                    {renderTabs(roots, rootId, selectRoot, true)}
+                    {children.length > 0 && renderTabs(children, childId, setChildId, false)}
+                </>
+            )}
 
             {/* Grille produits — occupe tout l'espace dispo */}
             <ScrollView style={styles.gridScroll} contentContainerStyle={styles.grid}>
-                {products.map((p) => {
+                {shown.map((p) => {
                     const qty = counts.get(p.id) ?? 0;
                     return (
                         <Pressable
@@ -144,7 +181,7 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
                         </Pressable>
                     );
                 })}
-                {!products.length && <Text style={styles.empty}>Aucun produit.</Text>}
+                {!shown.length && <Text style={styles.empty}>Aucun produit.</Text>}
             </ScrollView>
 
             {/* Barre du bas — collée en bas */}
@@ -180,6 +217,10 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
 }
 
 const styles = StyleSheet.create({
+    // Recherche
+    searchRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.md, paddingHorizontal: theme.spacing(3.5), height: 48, marginHorizontal: H_PAD, marginTop: theme.spacing(2.5) },
+    searchInput: { flex: 1, color: theme.colors.text, fontSize: 16, height: '100%' },
+
     // Onglets (slide horizontal)
     catScroll: { flexGrow: 0, paddingTop: theme.spacing(2.5) },
     subScroll: { flexGrow: 0, paddingTop: theme.spacing(2) },
@@ -188,7 +229,7 @@ const styles = StyleSheet.create({
     subcat: { height: 56, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.spacing(6) },
     catText: { fontWeight: '800', fontSize: 16 },
     subcatText: { fontWeight: '800', fontSize: 16 },
-    tabTextActive: { color: '#fff' },
+    tabTextActive: { color: theme.colors.onAccent },
     tabTextIdle: { color: theme.colors.textMuted },
 
     // Produits

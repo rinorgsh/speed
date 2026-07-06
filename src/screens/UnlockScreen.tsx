@@ -89,7 +89,7 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
                                     <Star color="#fff" size={16} fill="#f59e0b" strokeWidth={1.5} />
                                 </View>
                             )}
-                            <View style={[styles.avatar, { backgroundColor: u.color ?? theme.colors.primary }]}>
+                            <View style={[styles.avatar, { backgroundColor: u.color ?? theme.colors.surfaceAlt }]}>
                                 <Text style={styles.initial}>{u.name.charAt(0).toUpperCase()}</Text>
                             </View>
                             <Text style={styles.name} numberOfLines={1}>{u.name}</Text>
