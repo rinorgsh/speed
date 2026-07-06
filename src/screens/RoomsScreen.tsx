@@ -113,19 +113,14 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
         void clearActiveProfile();
     };
 
-    // Commande au comptoir = À EMPORTER (pas de table, TVA emporter appliquée).
-    const openCounter = () => {
-        if (!session || !server) return;
-        closeMenu();
-        startNew({ sessionId: session.id, serverId: server.id, roomId: null, tableId: null, serviceType: 'takeaway' });
-        navigation.navigate('Pos');
-    };
-
-    // Caisse comptoir (iPad) : vue caisse dédiée (produits + ticket + pavé), sur place par défaut.
+    // Comptoir = vente sans table. Sur iPad : caisse dédiée (produits + ticket + pavé
+    // Qté/Prix). Sur téléphone : même parcours qu'une table (écran Commande).
     const openComptoir = () => {
         if (!session || !server) return;
+        closeMenu();
         startNew({ sessionId: session.id, serverId: server.id, roomId: null, tableId: null, serviceType: 'dine_in' });
-        navigation.navigate('Comptoir');
+        if (isTablet) navigation.navigate('Comptoir');
+        else navigation.navigate('Pos');
     };
 
     const renderTable = (t: Table) => {
@@ -156,17 +151,9 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
         <Screen>
             <View style={styles.topbar}>
                 <Text style={styles.server}>{server?.name}</Text>
-                <View style={styles.topActions}>
-                    {isTablet && (
-                        <Pressable onPress={openComptoir} style={styles.comptoirBtn}>
-                            <ShoppingBag color={theme.colors.text} size={20} />
-                            <Text style={styles.comptoirText}>Comptoir</Text>
-                        </Pressable>
-                    )}
-                    <Pressable onPress={() => setMenuOpen(true)} style={styles.menuBtn} hitSlop={10}>
-                        <MenuIcon color={theme.colors.text} size={30} strokeWidth={2.5} />
-                    </Pressable>
-                </View>
+                <Pressable onPress={() => setMenuOpen(true)} style={styles.menuBtn} hitSlop={10}>
+                    <MenuIcon color={theme.colors.text} size={30} strokeWidth={2.5} />
+                </Pressable>
             </View>
 
             {/* Onglets salles (masqués en vue étage) */}
@@ -221,9 +208,9 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
             <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={closeMenu}>
                 <Pressable style={styles.menuBackdrop} onPress={closeMenu}>
                     <View style={styles.menu}>
-                        <Pressable style={styles.menuItem} onPress={openCounter}>
+                        <Pressable style={styles.menuItem} onPress={openComptoir}>
                             <ShoppingBag color={theme.colors.text} size={20} />
-                            <Text style={styles.menuText}>Comptoir (à emporter)</Text>
+                            <Text style={styles.menuText}>Comptoir</Text>
                         </Pressable>
                         {server?.role === 'admin' && (
                             <Pressable style={styles.menuItem} onPress={() => { closeMenu(); navigation.navigate('CloseSession'); }}>
@@ -252,10 +239,7 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
 
 const styles = StyleSheet.create({
     topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacing(3) },
-    topActions: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2.5) },
     server: { color: theme.colors.text, fontSize: 18, fontWeight: '700' },
-    comptoirBtn: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.surfaceAlt, borderRadius: theme.radius.md, paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(2.5), borderWidth: 1, borderColor: theme.colors.border },
-    comptoirText: { color: theme.colors.text, fontWeight: '700', fontSize: 15 },
     menuBtn: { padding: theme.spacing(2), borderRadius: theme.radius.sm, backgroundColor: theme.colors.surfaceAlt },
     tabs: { flexGrow: 0, marginBottom: theme.spacing(4) },
     tabsRow: { flexDirection: 'row', gap: GAP, marginBottom: theme.spacing(4) },
