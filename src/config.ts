@@ -5,9 +5,14 @@
  * (écran d'enrôlement) puis stockés. Ces valeurs ne servent que de défauts dev.
  */
 export const DEFAULTS = {
-    // IP de la machine qui héberge l'API Laravel sur le wifi du resto (à adapter).
-    apiUrl: 'http://192.168.1.10:8000',
-    enrollmentSecret: 'dev-secret-pos-2026',
+    // URL du serveur pré-remplie sur l'écran d'enrôlement.
+    // ⚠️ Pour le build envoyé aux STORES : mettre ici l'URL d'un serveur de DÉMO
+    // PUBLIC (accessible par le reviewer Apple/Google, pas une IP de LAN), avec des
+    // données d'exemple -> le reviewer n'a qu'à appuyer sur « Enrôler ».
+    apiUrl: 'https://pos-horeca.on-forge.com',
+    enrollmentSecret: 'change-me-in-env',
+    // Nom d'appareil pré-rempli (les vrais utilisateurs le remplacent).
+    deviceName: 'Terminal démo',
 };
 
 // La config temps réel (Reverb : key/host/port/scheme) est désormais fournie

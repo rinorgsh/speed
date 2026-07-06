@@ -15,7 +15,7 @@ export function EnrollmentScreen() {
     const enroll = useAuth((s) => s.enroll);
     const sync = useConfig((s) => s.syncFromServer);
     const [apiUrl, setApiUrl] = useState(DEFAULTS.apiUrl);
-    const [name, setName] = useState('');
+    const [name, setName] = useState(DEFAULTS.deviceName);
     const [secret, setSecret] = useState(DEFAULTS.enrollmentSecret);
     const [loading, setLoading] = useState(false);
 
