@@ -88,7 +88,12 @@ export function ProfileSelectScreen() {
                             </Pressable>
                         );
                     })}
-                    {!profiles.length && <Text style={styles.empty}>Aucun profil disponible.</Text>}
+                    {!profiles.length && (
+                        <View style={styles.center}>
+                            <Text style={styles.empty}>Aucun profil disponible sur ce serveur.</Text>
+                            <Pressable onPress={load} style={styles.retry}><Text style={styles.retryText}>Réessayer</Text></Pressable>
+                        </View>
+                    )}
                 </ScrollView>
             )}
 

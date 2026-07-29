@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
-import { Menu as MenuIcon, Wallet, LayoutGrid, Lock, ShoppingBag, Repeat } from 'lucide-react-native';
+import { Menu as MenuIcon, Wallet, LayoutGrid, Lock, ShoppingBag, Repeat, Map as MapIcon } from 'lucide-react-native';
 
 // Tailles calculées (app verrouillée en portrait).
 const SCREEN_W = Dimensions.get('window').width;
@@ -12,6 +12,7 @@ const TABLE_COLS = 3;
 const TABLE_SIZE = Math.floor((SCREEN_W - PAD * 2 - GAP * (TABLE_COLS - 1)) / TABLE_COLS);
 import { Screen } from '../components/Screen';
 import { SyncBadge } from '../components/SyncBadge';
+import { RoomPlan, type TableState } from '../components/RoomPlan';
 import { theme } from '../theme';
 import { useConfig } from '../store/useConfig';
 import { useAuth } from '../store/useAuth';
@@ -20,8 +21,11 @@ import { useRealtime } from '../store/useRealtime';
 import { useTables } from '../store/useTables';
 import * as db from '../db/database';
 import { pullOpenOrders, resolveTableOrder, flushOutbox } from '../services/sync';
-import type { Table } from '../types';
+import type { RoomDecoration, Table } from '../types';
 import type { RootStackParamList } from '../navigation/types';
+
+// Préférence locale : mode d'affichage choisi sur CET appareil.
+const VIEW_MODE_PREF = 'rooms_view_mode';
 
 /** Salles (onglets) ou vue « étage » (toutes les salles). État table instantané. */
 export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackParamList, 'Rooms'>) {
@@ -34,7 +38,9 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
     const { startNew, resume } = useCart();
     const occupied = useTables((s) => s.occupied);
     const pending = useTables((s) => s.pending);
+    const summaries = useTables((s) => s.summaries);
     const refreshTables = useTables((s) => s.refresh);
+    const users = useConfig((s) => s.users);
     const tableTick = useRealtime((s) => s.tableTick);
     const [roomId, setRoomId] = useState<number | null>(rooms[0]?.id ?? null);
     const [floorView, setFloorView] = useState(false);
@@ -53,6 +59,53 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
     const currentRoom = rooms.find((r) => r.id === roomId);
     const tablesOf = useCallback((rid: number) => allTables.filter((t) => t.room_id === rid), [allTables]);
     const tables = useMemo(() => (roomId != null ? tablesOf(roomId) : []), [tablesOf, roomId]);
+
+    // --- Mode d'affichage : grille classique ou plan personnalisé ---
+    // Le plan n'est proposé que si la salle a réellement été dessinée dans l'admin.
+    const planAvailable = !!currentRoom?.plan_enabled && tables.some((t) => t.pos_x != null);
+    const [viewPref, setViewPref] = useState<'grid' | 'plan' | null>(null);
+    const [decorations, setDecorations] = useState<RoomDecoration[]>([]);
+
+    useEffect(() => {
+        void db.getPref(VIEW_MODE_PREF).then((v) => setViewPref(v === 'plan' || v === 'grid' ? v : null));
+    }, []);
+
+    // Sans choix explicite : plan par défaut sur grand écran, grille sur téléphone —
+    // un plan à l'échelle d'un iPhone n'apporte rien.
+    const planMode = planAvailable && (viewPref ? viewPref === 'plan' : isTablet);
+
+    const toggleViewMode = () => {
+        const next = planMode ? 'grid' : 'plan';
+        setViewPref(next);
+        void db.setPref(VIEW_MODE_PREF, next);
+    };
+
+    // Le calque décor est lu à la demande (il ne sert qu'au mode plan).
+    useEffect(() => {
+        if (roomId == null || !planMode) { setDecorations([]); return; }
+        let cancelled = false;
+        void db.getDecorations(roomId).then((d) => { if (!cancelled) setDecorations(d); });
+        return () => { cancelled = true; };
+    }, [roomId, planMode, allTables]);
+
+    const serverColorOf = useCallback(
+        (id: number | null) => (id != null ? users.find((u) => u.id === id)?.color ?? null : null),
+        [users],
+    );
+
+    const tableStateOf = useCallback((tableId: number): TableState => {
+        const isOccupied = occupied.includes(tableId);
+        const summary = summaries[tableId];
+        const openedAt = summary?.openedAt ? Date.parse(summary.openedAt) : NaN;
+        return {
+            status: isOccupied ? 'occupied' : 'free',
+            total: isOccupied ? summary?.total : undefined,
+            covers: summary?.covers ?? undefined,
+            pending: pending[tableId] ?? 0,
+            serverColor: serverColorOf(summary?.serverId ?? null),
+            minutes: Number.isNaN(openedAt) ? undefined : Math.floor((Date.now() - openedAt) / 60000),
+        };
+    }, [occupied, summaries, pending, serverColorOf]);
 
     // Caisse fermée (ici ou sur un autre appareil) -> retour au choix de profil.
     // Guardé par le focus pour ne pas déclencher sur l'appareil qui affiche le rapport Z.
@@ -184,6 +237,16 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                         </View>
                     ))}
                 </ScrollView>
+            ) : planMode && currentRoom ? (
+                /* Vue plan : disposition réelle de la salle (iPad en priorité) */
+                <RoomPlan
+                    room={currentRoom}
+                    tables={tables}
+                    decorations={decorations}
+                    stateOf={tableStateOf}
+                    onPressTable={openTable}
+                    onLongPressTable={releaseTable}
+                />
             ) : (
                 /* Vue par salle */
                 <ImageBackground
@@ -210,6 +273,12 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                             <Pressable style={styles.menuItem} onPress={() => { closeMenu(); navigation.navigate('CloseSession'); }}>
                                 <Wallet color={theme.colors.text} size={20} />
                                 <Text style={styles.menuText}>Fermer la caisse</Text>
+                            </Pressable>
+                        )}
+                        {planAvailable && !floorView && (
+                            <Pressable style={styles.menuItem} onPress={() => { toggleViewMode(); closeMenu(); }}>
+                                <MapIcon color={theme.colors.text} size={20} />
+                                <Text style={styles.menuText}>{planMode ? 'Vue liste' : 'Vue plan'}</Text>
                             </Pressable>
                         )}
                         <Pressable style={styles.menuItem} onPress={() => { setFloorView((v) => !v); closeMenu(); }}>

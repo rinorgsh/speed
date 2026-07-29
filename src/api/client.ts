@@ -39,10 +39,15 @@ export async function fetchProfiles(): Promise<Profile[]> {
     return res.data.profiles ?? [];
 }
 
-/** Récupère toute la config à mettre en cache local, scopée sur un profil. */
+/**
+ * Récupère toute la config à mettre en cache local, scopée sur un profil.
+ * Payload volumineux (carte complète) : on lui laisse plus de temps que le
+ * timeout standard, sinon un réseau lent bloque tout le démarrage de l'app.
+ */
 export async function fetchBootstrap(profileId?: number | null): Promise<BootstrapPayload> {
     const res = await api.get<BootstrapPayload>('/bootstrap', {
         params: profileId ? { profile_id: profileId } : undefined,
+        timeout: NETWORK.bootstrapTimeout,
     });
     return res.data;
 }

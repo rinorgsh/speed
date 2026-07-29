@@ -98,6 +98,12 @@ export function connectRealtime(config: RealtimeConfig | null, apiUrl: string, p
             void cfg.applyAvailability(e.id, !!e.available);
         });
         channel.bind('CategoryUpdated', (c: Category) => void cfg.applyCategoryUpdate(c));
+        // Plan de salle réenregistré dans l'admin : on resynchronise la config pour
+        // adopter la nouvelle disposition sans redémarrer l'app.
+        channel.bind('RoomPlanUpdated', () => {
+            console.log('[realtime] ⬇ RoomPlanUpdated');
+            void useConfig.getState().syncFromServer();
+        });
         channel.bind('TableStatusChanged', () => useRealtime.getState().bumpTables());
         channel.bind('OrderUpdated', (o: Order) => {
             console.log('[realtime] ⬇ OrderUpdated', o?.id, o?.status);

@@ -10,7 +10,9 @@ import type {
     Product,
     RealtimeConfig,
     Room,
+    RoomDecoration,
     Table,
+    TableSummary,
     Tax,
     User,
 } from '../types';
@@ -44,8 +46,20 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
     CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, role TEXT, active INTEGER, color TEXT, pin_hash TEXT);
     CREATE TABLE IF NOT EXISTS taxes (id INTEGER PRIMARY KEY, name TEXT, rate REAL);
     CREATE TABLE IF NOT EXISTS printers (id INTEGER PRIMARY KEY, name TEXT, ip_address TEXT, port INTEGER, role TEXT, active INTEGER);
-    CREATE TABLE IF NOT EXISTS rooms (id INTEGER PRIMARY KEY, name TEXT, sort_order INTEGER, background_image_url TEXT);
-    CREATE TABLE IF NOT EXISTS tables (id INTEGER PRIMARY KEY, room_id INTEGER, label TEXT, sort_order INTEGER);
+    CREATE TABLE IF NOT EXISTS rooms (
+      id INTEGER PRIMARY KEY, name TEXT, sort_order INTEGER, background_image_url TEXT,
+      plan_enabled INTEGER DEFAULT 0, plan_width INTEGER DEFAULT 1000, plan_height INTEGER DEFAULT 700,
+      background_opacity INTEGER DEFAULT 35
+    );
+    CREATE TABLE IF NOT EXISTS tables (
+      id INTEGER PRIMARY KEY, room_id INTEGER, label TEXT, sort_order INTEGER,
+      pos_x INTEGER, pos_y INTEGER, width INTEGER DEFAULT 90, height INTEGER DEFAULT 90,
+      rotation INTEGER DEFAULT 0, shape TEXT DEFAULT 'round', seats INTEGER DEFAULT 4
+    );
+    CREATE TABLE IF NOT EXISTS room_decorations (
+      id INTEGER PRIMARY KEY, room_id INTEGER, kind TEXT, label TEXT,
+      pos_x INTEGER, pos_y INTEGER, width INTEGER, height INTEGER, rotation INTEGER
+    );
     CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT, color TEXT, sort_order INTEGER, printer_id INTEGER);
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY, category_id INTEGER, name TEXT, price REAL, tax_id INTEGER, tax_takeaway_id INTEGER,
@@ -75,60 +89,113 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
     await d.execAsync('ALTER TABLE orders ADD COLUMN profile_id INTEGER').catch(() => {});
     await d.execAsync('ALTER TABLE orders ADD COLUMN ticket_number INTEGER').catch(() => {});
     await d.execAsync('ALTER TABLE orders ADD COLUMN version INTEGER DEFAULT 0').catch(() => {});
+    // Plan de salle : colonnes ajoutées aux installations existantes.
+    for (const sql of [
+        'ALTER TABLE rooms ADD COLUMN plan_enabled INTEGER DEFAULT 0',
+        'ALTER TABLE rooms ADD COLUMN plan_width INTEGER DEFAULT 1000',
+        'ALTER TABLE rooms ADD COLUMN plan_height INTEGER DEFAULT 700',
+        'ALTER TABLE rooms ADD COLUMN background_opacity INTEGER DEFAULT 35',
+        'ALTER TABLE tables ADD COLUMN pos_x INTEGER',
+        'ALTER TABLE tables ADD COLUMN pos_y INTEGER',
+        'ALTER TABLE tables ADD COLUMN width INTEGER DEFAULT 90',
+        'ALTER TABLE tables ADD COLUMN height INTEGER DEFAULT 90',
+        'ALTER TABLE tables ADD COLUMN rotation INTEGER DEFAULT 0',
+        "ALTER TABLE tables ADD COLUMN shape TEXT DEFAULT 'round'",
+        'ALTER TABLE tables ADD COLUMN seats INTEGER DEFAULT 4',
+    ]) {
+        await d.execAsync(sql).catch(() => {});
+    }
 }
 
 // --- Import de la config (bootstrap) ---
 
+/**
+ * Refuse un payload inexploitable AVANT de toucher au cache. L'import commence
+ * par un DELETE de toutes les tables de config : sans ce garde-fou, une réponse
+ * tronquée/inattendue vide le cache et l'appareil se retrouve sans carte ni
+ * serveurs (écran « Aucun serveur »), y compris hors-ligne.
+ */
+function assertUsableBootstrap(payload: BootstrapPayload): void {
+    const lists: (keyof BootstrapPayload)[] = ['users', 'taxes', 'printers', 'rooms', 'categories', 'products', 'option_groups'];
+    for (const key of lists) {
+        if (!Array.isArray(payload[key])) {
+            throw new Error(`Réponse serveur incomplète (« ${String(key)} » manquant).`);
+        }
+    }
+    if (!payload.settings || typeof payload.settings !== 'object') {
+        throw new Error('Réponse serveur incomplète (« settings » manquant).');
+    }
+    if (!payload.users.length) {
+        throw new Error('Le serveur n\'a renvoyé aucun utilisateur actif.');
+    }
+}
+
 export async function importBootstrap(payload: BootstrapPayload): Promise<void> {
+    assertUsableBootstrap(payload);
+
     const d = getDb();
-    await d.withTransactionAsync(async () => {
+    // Transaction EXCLUSIVE : `withTransactionAsync` laisse les requêtes émises
+    // ailleurs pendant l'await s'intercaler dans la transaction (cf. docs SDK 56).
+    // Deux synchros simultanées pouvaient alors s'entremêler et laisser le cache
+    // vide. Toutes les requêtes passent par `txn` pour rester dans la transaction.
+    await d.withExclusiveTransactionAsync(async (txn) => {
         // On vide puis ré-insère la config (les commandes locales ne sont pas touchées).
-        for (const t of ['cache_settings', 'users', 'taxes', 'printers', 'rooms', 'tables', 'categories', 'products', 'option_groups', 'pos_session']) {
-            await d.execAsync(`DELETE FROM ${t};`);
+        for (const t of ['cache_settings', 'users', 'taxes', 'printers', 'rooms', 'tables', 'room_decorations', 'categories', 'products', 'option_groups', 'pos_session']) {
+            await txn.execAsync(`DELETE FROM ${t};`);
         }
 
         for (const [key, value] of Object.entries(payload.settings)) {
-            await d.runAsync('INSERT INTO cache_settings (key, value) VALUES (?, ?)', key, value ?? null);
+            await txn.runAsync('INSERT INTO cache_settings (key, value) VALUES (?, ?)', key, value ?? null);
         }
         // Config temps réel (serveur) stockée à part pour survivre hors-ligne.
-        await d.runAsync('INSERT INTO cache_settings (key, value) VALUES (?, ?)', REALTIME_KEY, payload.realtime ? JSON.stringify(payload.realtime) : null);
+        await txn.runAsync('INSERT INTO cache_settings (key, value) VALUES (?, ?)', REALTIME_KEY, payload.realtime ? JSON.stringify(payload.realtime) : null);
         for (const u of payload.users) {
-            await d.runAsync('INSERT INTO users (id, name, role, active, color, pin_hash) VALUES (?,?,?,?,?,?)',
+            await txn.runAsync('INSERT INTO users (id, name, role, active, color, pin_hash) VALUES (?,?,?,?,?,?)',
                 u.id, u.name, u.role, u.active ? 1 : 0, u.color, u.pin_hash ?? null);
         }
         for (const t of payload.taxes) {
-            await d.runAsync('INSERT INTO taxes (id, name, rate) VALUES (?,?,?)', t.id, t.name, t.rate);
+            await txn.runAsync('INSERT INTO taxes (id, name, rate) VALUES (?,?,?)', t.id, t.name, t.rate);
         }
         for (const p of payload.printers) {
-            await d.runAsync('INSERT INTO printers (id, name, ip_address, port, role, active) VALUES (?,?,?,?,?,?)',
+            await txn.runAsync('INSERT INTO printers (id, name, ip_address, port, role, active) VALUES (?,?,?,?,?,?)',
                 p.id, p.name, p.ip_address, p.port, p.role, p.active ? 1 : 0);
         }
         for (const r of payload.rooms) {
-            await d.runAsync('INSERT INTO rooms (id, name, sort_order, background_image_url) VALUES (?,?,?,?)',
-                r.id, r.name, r.sort_order, r.background_image_url);
+            await txn.runAsync(
+                'INSERT INTO rooms (id, name, sort_order, background_image_url, plan_enabled, plan_width, plan_height, background_opacity) VALUES (?,?,?,?,?,?,?,?)',
+                r.id, r.name, r.sort_order, r.background_image_url,
+                r.plan_enabled ? 1 : 0, r.plan_width ?? 1000, r.plan_height ?? 700, r.background_opacity ?? 35);
             for (const tb of r.tables ?? []) {
-                await d.runAsync('INSERT INTO tables (id, room_id, label, sort_order) VALUES (?,?,?,?)',
-                    tb.id, tb.room_id, tb.label, tb.sort_order);
+                await txn.runAsync(
+                    'INSERT INTO tables (id, room_id, label, sort_order, pos_x, pos_y, width, height, rotation, shape, seats) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                    tb.id, tb.room_id, tb.label, tb.sort_order,
+                    tb.pos_x ?? null, tb.pos_y ?? null, tb.width ?? 90, tb.height ?? 90,
+                    tb.rotation ?? 0, tb.shape ?? 'round', tb.seats ?? 4);
+            }
+            for (const dec of r.decorations ?? []) {
+                await txn.runAsync(
+                    'INSERT INTO room_decorations (id, room_id, kind, label, pos_x, pos_y, width, height, rotation) VALUES (?,?,?,?,?,?,?,?,?)',
+                    dec.id, r.id, dec.kind, dec.label ?? null, dec.pos_x, dec.pos_y, dec.width, dec.height, dec.rotation);
             }
         }
         for (const c of payload.categories) {
-            await d.runAsync('INSERT INTO categories (id, parent_id, name, color, sort_order, printer_id) VALUES (?,?,?,?,?,?)',
+            await txn.runAsync('INSERT INTO categories (id, parent_id, name, color, sort_order, printer_id) VALUES (?,?,?,?,?,?)',
                 c.id, c.parent_id, c.name, c.color, c.sort_order, c.printer_id);
         }
         for (const p of payload.products) {
-            await d.runAsync(
+            await txn.runAsync(
                 'INSERT INTO products (id, category_id, name, price, tax_id, tax_takeaway_id, price_includes_tax, color, available, is_open_price, sort_order, image_url, option_group_ids) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 p.id, p.category_id, p.name, p.price, p.tax_id, p.tax_takeaway_id,
                 p.price_includes_tax ? 1 : 0, p.color, p.available ? 1 : 0, p.is_open_price ? 1 : 0,
                 p.sort_order, p.image_url, JSON.stringify(p.option_group_ids ?? []));
         }
         for (const g of payload.option_groups) {
-            await d.runAsync('INSERT INTO option_groups (id, name, min_select, max_select, required, options) VALUES (?,?,?,?,?,?)',
+            await txn.runAsync('INSERT INTO option_groups (id, name, min_select, max_select, required, options) VALUES (?,?,?,?,?,?)',
                 g.id, g.name, g.min_select, g.max_select, g.required ? 1 : 0, JSON.stringify(g.options ?? []));
         }
         if (payload.session) {
             const s = payload.session;
-            await d.runAsync('INSERT INTO pos_session (id, status, opened_by, opened_at, opening_cash, closed_by, closed_at, closing_cash) VALUES (?,?,?,?,?,?,?,?)',
+            await txn.runAsync('INSERT INTO pos_session (id, status, opened_by, opened_at, opening_cash, closed_by, closed_at, closing_cash) VALUES (?,?,?,?,?,?,?,?)',
                 s.id, s.status, s.opened_by, s.opened_at, s.opening_cash, s.closed_by, s.closed_at, s.closing_cash);
         }
     });
@@ -170,7 +237,13 @@ export async function getPrinters(): Promise<Printer[]> {
 }
 
 export async function getRooms(): Promise<Room[]> {
-    return getDb().getAllAsync<Room>('SELECT * FROM rooms ORDER BY sort_order');
+    const rows = await getDb().getAllAsync<any>('SELECT * FROM rooms ORDER BY sort_order');
+    return rows.map((r) => ({ ...r, plan_enabled: !!r.plan_enabled }));
+}
+
+/** Calque décor d'une salle (rendu du mode plan). */
+export async function getDecorations(roomId: number): Promise<RoomDecoration[]> {
+    return getDb().getAllAsync<RoomDecoration>('SELECT * FROM room_decorations WHERE room_id = ?', roomId);
 }
 
 export async function getTables(roomId: number): Promise<Table[]> {
@@ -221,6 +294,18 @@ export async function getFavoriteUserIds(): Promise<number[]> {
     }
 }
 
+/** Préférence locale générique (jamais écrasée par la synchro de config). */
+export async function getPref(key: string): Promise<string | null> {
+    const row = await getDb().getFirstAsync<{ value: string | null }>(
+        'SELECT value FROM device_prefs WHERE key = ?', key,
+    );
+    return row?.value ?? null;
+}
+
+export async function setPref(key: string, value: string): Promise<void> {
+    await getDb().runAsync('INSERT OR REPLACE INTO device_prefs (key, value) VALUES (?, ?)', key, value);
+}
+
 export async function setFavoriteUserIds(ids: number[]): Promise<void> {
     await getDb().runAsync(
         'INSERT OR REPLACE INTO device_prefs (key, value) VALUES (?, ?)',
@@ -259,8 +344,10 @@ export async function upsertCategory(c: Category): Promise<void> {
 // reçu du serveur (temps réel / pull) -> déjà à jour, ne pas re-pousser.
 export async function saveOrder(order: Order, synced = false): Promise<void> {
     const d = getDb();
-    await d.withTransactionAsync(async () => {
-        await d.runAsync(
+    // Exclusive : plusieurs sauvegardes (panier + temps réel + pull) peuvent se
+    // chevaucher ; sans isolation elles s'entremêlent dans la même transaction.
+    await d.withExclusiveTransactionAsync(async (txn) => {
+        await txn.runAsync(
             `INSERT OR REPLACE INTO orders
        (id, profile_id, ticket_number, version, session_id, room_id, table_id, server_id, status, service_type, covers, subtotal, tax_total, total, opened_at, paid_at, payments, synced, updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -268,9 +355,9 @@ export async function saveOrder(order: Order, synced = false): Promise<void> {
             order.service_type, order.covers, order.subtotal, order.tax_total, order.total,
             order.opened_at, order.paid_at, JSON.stringify(order.payments ?? []), synced ? 1 : 0, new Date().toISOString(),
         );
-        await d.runAsync('DELETE FROM order_lines WHERE order_id = ?', order.id);
+        await txn.runAsync('DELETE FROM order_lines WHERE order_id = ?', order.id);
         for (const l of order.lines) {
-            await d.runAsync(
+            await txn.runAsync(
                 `INSERT INTO order_lines
          (id, order_id, product_id, name_snapshot, qty, unit_price_snapshot, tax_rate_snapshot, price_includes_tax_snapshot, options_snapshot, note, line_total, sent_at, sent_qty, voided, void_reason, voided_by)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -348,6 +435,31 @@ export async function getTablePendingCounts(): Promise<Record<number, number>> {
     for (const r of rows) {
         const n = Math.round(r.pending ?? 0);
         if (n > 0) map[r.table_id] = n;
+    }
+    return map;
+}
+
+/**
+ * Résumé par table ouverte pour le mode plan : montant en cours, couverts,
+ * serveur affecté et heure d'ouverture (durée d'occupation).
+ */
+export async function getTableSummaries(): Promise<Record<number, TableSummary>> {
+    const rows = await getDb().getAllAsync<any>(
+        `SELECT o.table_id AS table_id, o.total AS total, o.covers AS covers,
+                o.server_id AS server_id, o.opened_at AS opened_at
+         FROM orders o
+         WHERE o.status IN ('open','sent') AND o.table_id IS NOT NULL`,
+    );
+    const map: Record<number, TableSummary> = {};
+    for (const r of rows) {
+        // Plusieurs commandes sur une même table (rare) : on cumule les montants.
+        const current = map[r.table_id];
+        map[r.table_id] = {
+            total: (current?.total ?? 0) + Number(r.total ?? 0),
+            covers: current?.covers ?? (r.covers != null ? Number(r.covers) : null),
+            serverId: current?.serverId ?? (r.server_id != null ? Number(r.server_id) : null),
+            openedAt: current?.openedAt ?? r.opened_at ?? null,
+        };
     }
     return map;
 }

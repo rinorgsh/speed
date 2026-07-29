@@ -1,0 +1,263 @@
+import React, { useMemo, useRef, useState } from 'react';
+import { Image, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
+import { theme } from '../theme';
+import type { Room, RoomDecoration, Table } from '../types';
+
+/**
+ * Rendu du plan de salle personnalisé (mode « plan »).
+ *
+ * Les coordonnées viennent du serveur en UNITÉS DE GRILLE sur le canevas de la
+ * salle : on applique un seul facteur d'échelle, donc le plan est identique
+ * partout (iPhone, iPad, admin web) sans recalcul de mise en page.
+ *
+ * Le déplacement/zoom utilise PanResponder (inclus dans React Native) plutôt
+ * qu'un module natif : tout reste livrable par mise à jour OTA.
+ */
+
+export interface TableState {
+    status: 'free' | 'occupied';
+    total?: number;
+    covers?: number;
+    /** Articles saisis mais pas encore envoyés en cuisine. */
+    pending?: number;
+    serverColor?: string | null;
+    /** Minutes écoulées depuis l'ouverture de la commande. */
+    minutes?: number;
+}
+
+interface Props {
+    room: Room;
+    tables: Table[];
+    decorations: RoomDecoration[];
+    stateOf: (tableId: number) => TableState;
+    onPressTable: (table: Table) => void;
+    onLongPressTable?: (table: Table) => void;
+    /** Seuil d'alerte sur la durée d'occupation (minutes). */
+    slowAfterMinutes?: number;
+}
+
+const MIN_ZOOM = 0.6;
+const MAX_ZOOM = 3;
+
+export function RoomPlan({
+    room,
+    tables,
+    decorations,
+    stateOf,
+    onPressTable,
+    onLongPressTable,
+    slowAfterMinutes = 90,
+}: Props) {
+    const [viewport, setViewport] = useState({ width: 0, height: 0 });
+    const [zoom, setZoom] = useState(1);
+    const [offset, setOffset] = useState({ x: 0, y: 0 });
+
+    // Échelle de base : le plan entier tient dans la zone disponible.
+    const baseScale = useMemo(() => {
+        if (!viewport.width || !viewport.height) return 0;
+        return Math.min(viewport.width / room.plan_width, viewport.height / room.plan_height);
+    }, [viewport, room.plan_width, room.plan_height]);
+
+    const scale = baseScale * zoom;
+    const px = (units: number) => units * scale;
+
+    // Déplacement à un doigt + pincement à deux doigts, sans module natif.
+    const gesture = useRef({ startOffset: { x: 0, y: 0 }, startZoom: 1, startDistance: 0 });
+    const panResponder = useMemo(
+        () =>
+            PanResponder.create({
+                // On ne capture qu'à partir d'un vrai mouvement : un simple appui
+                // doit rester disponible pour la table en dessous.
+                onMoveShouldSetPanResponder: (_e, g) =>
+                    Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6 || _e.nativeEvent.touches.length > 1,
+                onPanResponderGrant: () => {
+                    gesture.current.startOffset = offset;
+                    gesture.current.startZoom = zoom;
+                    gesture.current.startDistance = 0;
+                },
+                onPanResponderMove: (e, g) => {
+                    const touches = e.nativeEvent.touches;
+                    if (touches.length >= 2) {
+                        const [a, b] = touches;
+                        const distance = Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
+                        if (!gesture.current.startDistance) {
+                            gesture.current.startDistance = distance;
+                            return;
+                        }
+                        const next = gesture.current.startZoom * (distance / gesture.current.startDistance);
+                        setZoom(Math.min(Math.max(next, MIN_ZOOM), MAX_ZOOM));
+                        return;
+                    }
+                    setOffset({
+                        x: gesture.current.startOffset.x + g.dx,
+                        y: gesture.current.startOffset.y + g.dy,
+                    });
+                },
+            }),
+        [offset, zoom],
+    );
+
+    const recenter = () => {
+        setZoom(1);
+        setOffset({ x: 0, y: 0 });
+    };
+
+    const planStyle = {
+        width: px(room.plan_width),
+        height: px(room.plan_height),
+        transform: [{ translateX: offset.x }, { translateY: offset.y }],
+    };
+
+    return (
+        <View
+            style={styles.viewport}
+            onLayout={(e) => setViewport({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
+            {...panResponder.panHandlers}
+        >
+            {baseScale > 0 && (
+                <View style={[styles.plan, planStyle]}>
+                    {room.background_image_url && (
+                        <Image
+                            source={{ uri: room.background_image_url }}
+                            style={[StyleSheet.absoluteFill, { opacity: room.background_opacity / 100 }]}
+                            resizeMode="cover"
+                        />
+                    )}
+
+                    {/* Décor : purement visuel, non cliquable. */}
+                    {decorations.map((d) => (
+                        <View
+                            key={`d${d.id}`}
+                            pointerEvents="none"
+                            style={[
+                                styles.decor,
+                                d.kind === 'plant' && styles.decorRound,
+                                {
+                                    left: px(d.pos_x),
+                                    top: px(d.pos_y),
+                                    width: px(d.width),
+                                    height: px(d.height),
+                                    transform: [{ rotate: `${d.rotation}deg` }],
+                                },
+                            ]}
+                        >
+                            {d.kind === 'text' && !!d.label && (
+                                <Text style={[styles.decorLabel, { fontSize: Math.max(9, px(d.height) * 0.4) }]} numberOfLines={1}>
+                                    {d.label}
+                                </Text>
+                            )}
+                        </View>
+                    ))}
+
+                    {tables.map((t) => {
+                        const posX = t.pos_x;
+                        const posY = t.pos_y;
+                        // Table jamais placée sur le plan : on ne l'affiche pas ici
+                        // (elle reste accessible en vue liste).
+                        if (posX == null || posY == null) return null;
+                        const st = stateOf(t.id);
+                        const occupied = st.status === 'occupied';
+                        const slow = occupied && (st.minutes ?? 0) >= slowAfterMinutes;
+                        const labelSize = Math.max(11, px(t.height) * 0.26);
+
+                        return (
+                            <Pressable
+                                key={`t${t.id}`}
+                                onPress={() => onPressTable(t)}
+                                onLongPress={() => onLongPressTable?.(t)}
+                                delayLongPress={400}
+                                style={({ pressed }) => [
+                                    styles.table,
+                                    isRound(t.shape) ? { borderRadius: px(Math.min(t.width, t.height)) / 2 } : styles.tableSquare,
+                                    occupied ? styles.tableOccupied : styles.tableFree,
+                                    slow && styles.tableSlow,
+                                    pressed && styles.tablePressed,
+                                    {
+                                        left: px(posX),
+                                        top: px(posY),
+                                        width: px(t.width),
+                                        height: px(t.height),
+                                        transform: [{ rotate: `${t.rotation}deg` }],
+                                    },
+                                ]}
+                            >
+                                <Text style={[styles.tableLabel, occupied && styles.tableLabelOccupied, { fontSize: labelSize }]} numberOfLines={1}>
+                                    {t.label}
+                                </Text>
+                                {occupied && st.total != null && (
+                                    <Text style={[styles.tableTotal, { fontSize: labelSize * 0.7 }]} numberOfLines={1}>
+                                        {st.total.toFixed(2)}
+                                    </Text>
+                                )}
+
+                                {/* Pastille du serveur affecté. */}
+                                {occupied && !!st.serverColor && (
+                                    <View style={[styles.serverDot, { backgroundColor: st.serverColor }]} />
+                                )}
+                                {/* Articles pas encore envoyés en cuisine. */}
+                                {!!st.pending && (
+                                    <View style={styles.pendingBadge}>
+                                        <Text style={styles.pendingText}>{st.pending}</Text>
+                                    </View>
+                                )}
+                            </Pressable>
+                        );
+                    })}
+                </View>
+            )}
+
+            {(zoom !== 1 || offset.x !== 0 || offset.y !== 0) && (
+                <Pressable style={styles.recenter} onPress={recenter}>
+                    <Text style={styles.recenterText}>Recentrer</Text>
+                </Pressable>
+            )}
+        </View>
+    );
+}
+
+const isRound = (shape: Table['shape']) => shape === 'round' || shape === 'bar';
+
+const styles = StyleSheet.create({
+    viewport: { flex: 1, overflow: 'hidden' },
+    plan: { position: 'relative' },
+    decor: {
+        position: 'absolute',
+        backgroundColor: 'rgba(255,255,255,0.07)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.14)',
+        borderRadius: 6,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    decorRound: { borderRadius: 999 },
+    decorLabel: { color: theme.colors.textFaint, fontWeight: '700' },
+    table: {
+        position: 'absolute',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 2,
+    },
+    tableSquare: { borderRadius: theme.radius.md },
+    tableFree: { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+    tableOccupied: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+    tableSlow: { borderColor: theme.colors.warning, borderWidth: 3 },
+    tablePressed: { opacity: 0.7 },
+    tableLabel: { color: theme.colors.text, fontWeight: '800' },
+    tableLabelOccupied: { color: theme.colors.onPrimary },
+    tableTotal: { color: theme.colors.onPrimary, fontWeight: '700', marginTop: 1 },
+    serverDot: {
+        position: 'absolute', top: 4, left: 4, width: 10, height: 10, borderRadius: 5,
+    },
+    pendingBadge: {
+        position: 'absolute', top: -6, right: -6, minWidth: 20, height: 20, borderRadius: 10,
+        backgroundColor: theme.colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
+    },
+    pendingText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+    recenter: {
+        position: 'absolute', right: theme.spacing(3), bottom: theme.spacing(3),
+        backgroundColor: theme.colors.surfaceAlt, borderRadius: theme.radius.pill,
+        paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(2.5),
+        borderWidth: 1, borderColor: theme.colors.border,
+    },
+    recenterText: { color: theme.colors.text, fontWeight: '700', fontSize: 13 },
+});

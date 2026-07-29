@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as db from '../db/database';
 import { fetchBootstrap } from '../api/client';
+import { NETWORK } from '../config';
 import { useAuth } from './useAuth';
 import type { Category, OptionGroup, Printer, Product, RealtimeConfig, Room, Table, Tax, User } from '../types';
 
@@ -23,6 +24,7 @@ interface ConfigState {
     lastSyncError: string | null;
 
     loadFromCache: () => Promise<void>;
+    /** Synchro de la config. Ne tourne jamais deux fois en parallèle (single-flight). */
     syncFromServer: () => Promise<boolean>;
     applyProductUpdate: (p: Product) => Promise<void>;
     applyAvailability: (id: number, available: boolean) => Promise<void>;
@@ -31,6 +33,19 @@ interface ConfigState {
     optionGroup: (id: number) => OptionGroup | undefined;
     receiptPrinter: () => Printer | undefined;
     fallbackOrderPrinter: () => Printer | null;
+}
+
+/** Promesse de synchro en cours (garde single-flight, cf. syncFromServer). */
+let inFlightSync: Promise<boolean> | null = null;
+
+/** Message lisible par un utilisateur non technique (affiché à l'écran). */
+function syncErrorMessage(e: any): string {
+    const status = e?.response?.status;
+    if (status === 401 || status === 403) return 'Appareil non autorisé. Réinitialisez l\'appareil et enrôlez-le à nouveau.';
+    if (status && status >= 500) return 'Le serveur est indisponible. Réessayez dans un instant.';
+    if (e?.code === 'ECONNABORTED') return 'Le serveur met trop de temps à répondre. Vérifiez la connexion.';
+    if (e?.message === 'Network Error') return 'Pas de connexion au serveur. Vérifiez le réseau.';
+    return e?.message ?? 'Synchronisation impossible.';
 }
 
 export const useConfig = create<ConfigState>((set, get) => ({
@@ -64,23 +79,52 @@ export const useConfig = create<ConfigState>((set, get) => ({
     },
 
     syncFromServer: async () => {
-        try {
-            const profileId = useAuth.getState().profileId;
-            const payload = await fetchBootstrap(profileId);
-            // Anti-course : si le profil actif a changé pendant la requête (ou si le
-            // serveur a renvoyé un autre profil), on IGNORE cette réponse périmée
-            // pour ne jamais écraser la config du profil courant.
-            if (payload.profile_id !== useAuth.getState().profileId) {
+        // Single-flight : l'écran de choix de profil, le focus de l'écran d'accueil
+        // et le retour au premier plan déclenchent la synchro quasi simultanément.
+        // Deux imports concurrents (DELETE + INSERT de toute la config) pouvaient
+        // se marcher dessus et laisser un cache vide -> « Aucun serveur ».
+        if (inFlightSync) return inFlightSync;
+
+        inFlightSync = (async () => {
+            let lastError: any = null;
+            try {
+                // Une seconde tentative absorbe les aléas d'un premier appel sur
+                // serveur froid (le 1er lancement après installation, typiquement).
+                for (let attempt = 1; attempt <= NETWORK.syncAttempts; attempt++) {
+                    try {
+                        const profileId = useAuth.getState().profileId;
+                        const payload = await fetchBootstrap(profileId);
+                        // Anti-course : si le profil actif a changé pendant la requête (ou si le
+                        // serveur a renvoyé un autre profil), on IGNORE cette réponse périmée
+                        // pour ne jamais écraser la config du profil courant.
+                        if (payload.profile_id !== useAuth.getState().profileId) {
+                            return false;
+                        }
+                        await db.importBootstrap(payload);
+                        await get().loadFromCache();
+                        set({ lastSyncError: null });
+                        return true;
+                    } catch (e: any) {
+                        lastError = e;
+                        // Inutile de réessayer si le serveur nous refuse (token invalide).
+                        const status = e?.response?.status;
+                        if (status === 401 || status === 403) break;
+                        if (attempt < NETWORK.syncAttempts) {
+                            await new Promise((r) => setTimeout(r, 1500));
+                        }
+                    }
+                }
+
+                set({ lastSyncError: syncErrorMessage(lastError) });
+                // Le cache précédent est intact : on le recharge pour rester utilisable.
+                await get().loadFromCache().catch(() => {});
                 return false;
+            } finally {
+                inFlightSync = null;
             }
-            await db.importBootstrap(payload);
-            await get().loadFromCache();
-            set({ lastSyncError: null });
-            return true;
-        } catch (e: any) {
-            set({ lastSyncError: e?.message ?? 'Sync échouée' });
-            return false;
-        }
+        })();
+
+        return inFlightSync;
     },
 
     // Application des events temps réel : cache SQLite + état en mémoire.

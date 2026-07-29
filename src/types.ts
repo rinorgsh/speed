@@ -33,12 +33,21 @@ export interface Printer {
     active: boolean;
 }
 
+export type TableShape = 'round' | 'square' | 'rect' | 'bar';
+export type DecorationKind = 'wall' | 'bar' | 'door' | 'plant' | 'stairs' | 'text';
+
 export interface Room {
     id: number;
     name: string;
     sort_order: number;
     background_image_url: string | null;
+    /** Plan dessiné dans l'admin : conditionne l'accès au mode « plan ». */
+    plan_enabled: boolean;
+    plan_width: number;
+    plan_height: number;
+    background_opacity: number;
     tables?: Table[];
+    decorations?: RoomDecoration[];
 }
 
 export interface Table {
@@ -46,6 +55,35 @@ export interface Table {
     room_id: number;
     label: string;
     sort_order: number;
+    // Géométrie sur le canevas de la salle (unités de grille). null = jamais placée.
+    pos_x: number | null;
+    pos_y: number | null;
+    width: number;
+    height: number;
+    rotation: number;
+    shape: TableShape;
+    seats: number;
+}
+
+/** Résumé d'une table occupée, affiché sur le plan. */
+export interface TableSummary {
+    total: number;
+    covers: number | null;
+    serverId: number | null;
+    openedAt: string | null;
+}
+
+/** Élément purement décoratif du plan : jamais cliquable. */
+export interface RoomDecoration {
+    id: number;
+    room_id: number;
+    kind: DecorationKind;
+    label: string | null;
+    pos_x: number;
+    pos_y: number;
+    width: number;
+    height: number;
+    rotation: number;
 }
 
 export interface Category {

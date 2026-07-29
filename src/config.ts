@@ -20,7 +20,11 @@ export const DEFAULTS = {
 
 // Délais réseau (ms).
 export const NETWORK = {
-    timeout: 8000,
+    timeout: 15000,
+    // Le bootstrap ramène toute la carte : plus tolérant sur réseau lent/serveur froid.
+    bootstrapTimeout: 25000,
+    // Nombre de tentatives de la synchro de config avant d'afficher une erreur.
+    syncAttempts: 2,
 };
 
 // Impression.

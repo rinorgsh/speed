@@ -21,7 +21,18 @@ export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStac
     const [pin, setPin] = useState('');
     const [checking, setChecking] = useState(false);
 
-    if (!user) return null;
+    // Le serveur choisi n'est plus en cache (config resynchronisée entre-temps) :
+    // on informe au lieu d'afficher un écran vide.
+    if (!user) {
+        return (
+            <Screen>
+                <View style={styles.header}>
+                    <Text style={styles.name}>Utilisateur introuvable</Text>
+                    <Text style={styles.hint}>La configuration a changé. Revenez et choisissez à nouveau.</Text>
+                </View>
+            </Screen>
+        );
+    }
 
     const submit = async (value: string) => {
         if (checking) return;
