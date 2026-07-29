@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Banknote, CreditCard, Users, X } from 'lucide-react-native';
+import { Banknote, CreditCard, Users, X, BadgePercent } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
 import { Button } from '../components/Button';
 import { Keypad } from '../components/Keypad';
+import { DiscountModal } from '../components/DiscountModal';
 import { theme } from '../theme';
 import { useCart } from '../store/useCart';
 import { useAuth } from '../store/useAuth';
+import { useConfig } from '../store/useConfig';
+import { canDiscount, discountMaxPercent } from '../utils/permissions';
 import { printCustomerReceipt } from '../services/printing';
 import { flushOutbox } from '../services/sync';
 import type { PaymentMethod } from '../types';
@@ -24,10 +27,18 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
     const markPaid = useCart((s) => s.markPaid);
     const remaining = useCart((s) => s.remaining);
     const clear = useCart((s) => s.clear);
+    const setDiscount = useCart((s) => s.setDiscount);
+    const clearDiscount = useCart((s) => s.clearDiscount);
+    const settings = useConfig((s) => s.settings);
+    const server = useAuth((s) => s.server);
     const [entry, setEntry] = useState('');
     const [invoice, setInvoice] = useState(false);
     const [change, setChange] = useState(0);
     const [validating, setValidating] = useState(false);
+    const [discountOpen, setDiscountOpen] = useState(false);
+
+    const mayDiscount = canDiscount(server, settings);
+    const maxPercent = discountMaxPercent(settings);
 
     if (!order) {
         navigation.goBack();
@@ -115,6 +126,18 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
                 <View style={styles.summary}>
                     <Text style={styles.summaryLabel}>Total</Text>
                     <Text style={styles.summaryTotal}>{order.total.toFixed(2)} €</Text>
+                    {/* Remise en cours : montant déduit + motif, visibles avant de valider. */}
+                    {(order.discount_amount ?? 0) > 0 && (
+                        <View style={styles.discountBanner}>
+                            <Text style={styles.discountBannerText}>
+                                Remise {order.discount_type === 'percent' ? `${order.discount_value} %` : 'montant'}
+                                {'  '}− {(order.discount_amount ?? 0).toFixed(2)} €
+                            </Text>
+                            {!!order.discount_reason && (
+                                <Text style={styles.discountReason} numberOfLines={1}>{order.discount_reason}</Text>
+                            )}
+                        </View>
+                    )}
                     <Text style={[styles.remaining, settled && { color: theme.colors.success }]}>
                         {settled ? 'Soldé' : `Reste ${left.toFixed(2)} €`}
                     </Text>
@@ -159,6 +182,15 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
             </ScrollView>
 
             <View style={styles.footer}>
+                {/* La remise n'est modifiable qu'avant tout encaissement. */}
+                {mayDiscount && order.payments.length === 0 && (
+                    <Pressable onPress={() => setDiscountOpen(true)} style={styles.splitBtn}>
+                        <BadgePercent color={theme.colors.text} size={18} />
+                        <Text style={styles.splitText}>
+                            {(order.discount_amount ?? 0) > 0 ? 'Modifier la remise' : 'Appliquer une remise'}
+                        </Text>
+                    </Pressable>
+                )}
                 {order.payments.length === 0 && order.lines.some((l) => !l.voided && l.qty > 0) && (
                     <Pressable onPress={() => navigation.navigate('Split')} style={styles.splitBtn}>
                         <Users color={theme.colors.text} size={18} />
@@ -167,6 +199,18 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
                 )}
                 <Button label="Valider le paiement" variant="success" onPress={validate} loading={validating} disabled={!settled} />
             </View>
+
+            <DiscountModal
+                visible={discountOpen}
+                lines={order.lines}
+                maxPercent={maxPercent}
+                currentType={order.discount_type ?? null}
+                currentValue={order.discount_value ?? null}
+                currentReason={order.discount_reason ?? null}
+                onClose={() => setDiscountOpen(false)}
+                onApply={(type, value, reason) => server && setDiscount(type, value, reason, server.id)}
+                onRemove={clearDiscount}
+            />
         </Screen>
     );
 }
@@ -177,6 +221,13 @@ const styles = StyleSheet.create({
     summaryLabel: { color: theme.colors.textMuted },
     summaryTotal: { color: theme.colors.text, fontSize: 42, fontWeight: '800', letterSpacing: -1 },
     remaining: { color: theme.colors.warning, fontWeight: '700', marginTop: theme.spacing(1) },
+    discountBanner: {
+        marginTop: theme.spacing(2), backgroundColor: theme.colors.surfaceAlt, borderRadius: theme.radius.sm,
+        borderWidth: 1, borderColor: theme.colors.border,
+        paddingHorizontal: theme.spacing(3.5), paddingVertical: theme.spacing(2), alignItems: 'center',
+    },
+    discountBannerText: { color: theme.colors.text, fontWeight: '800', fontSize: 14 },
+    discountReason: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
     changeBox: { marginTop: theme.spacing(3), backgroundColor: theme.colors.warning, borderRadius: theme.radius.md, paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(2.5) },
     changeText: { color: '#1a1205', fontWeight: '800', fontSize: 16 },
     payRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface, borderRadius: theme.radius.sm, borderWidth: 1, borderColor: theme.colors.border, paddingVertical: theme.spacing(2.5), paddingHorizontal: theme.spacing(3.5), marginBottom: theme.spacing(2), gap: theme.spacing(3) },

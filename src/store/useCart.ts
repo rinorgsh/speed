@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import * as db from '../db/database';
 import type { Order, OrderLine, PaymentMethod, Product, SelectedOption, ServiceType } from '../types';
 import { uuidv4 } from '../utils/uuid';
-import { computeOrderTotals, lineTotal, optionsDelta, taxRateFor } from '../utils/pricing';
+import { computeOrderTotals, discountAmountFor, lineTotal, optionsDelta, taxRateFor } from '../utils/pricing';
 import { schedulePush } from '../services/sync';
 import { useAuth } from './useAuth';
 import { useConfig } from './useConfig';
@@ -40,6 +40,9 @@ interface CartState {
     sendToKitchen: () => KitchenBatch;
     addPayment: (method: PaymentMethod, amount: number) => void;
     removePayment: (index: number) => void;
+    /** Remise sur l'addition (% ou montant). `value = 0` retire la remise. */
+    setDiscount: (type: 'percent' | 'amount', value: number, reason: string, by: number) => void;
+    clearDiscount: () => void;
     markPaid: () => void;
     clear: () => void;
     qtyOfProduct: (productId: number) => number;
@@ -49,8 +52,29 @@ interface CartState {
     remaining: () => number;
 }
 
+/**
+ * Recalcule les totaux en tenant compte de la remise éventuelle. Un pourcentage
+ * suit l'addition (10 % restent 10 % après ajout d'un café) ; un montant fixe
+ * reste tel quel, plafonné au total.
+ */
 function recompute(order: Order): Order {
-    return { ...order, ...computeOrderTotals(order.lines) };
+    const maxPercent = discountMaxPercent();
+    const amount = order.discount_type
+        ? discountAmountFor(order.lines, order.discount_type, order.discount_value ?? 0, maxPercent)
+        : 0;
+
+    return {
+        ...order,
+        discount_amount: amount,
+        ...computeOrderTotals(order.lines, amount),
+    };
+}
+
+/** Plafond de remise configuré dans l'admin (réglages de l'établissement). */
+function discountMaxPercent(): number {
+    const raw = useConfig.getState().settings.discount_max_percent;
+    const n = raw != null ? Number(raw) : 100;
+    return Number.isFinite(n) ? Math.min(Math.max(n, 0), 100) : 100;
 }
 
 function persist(order: Order): void {
@@ -272,6 +296,37 @@ export const useCart = create<CartState>((set, get) => ({
         const order = get().order;
         if (!order) return;
         commit(set, { ...order, payments: order.payments.filter((_, i) => i !== index) });
+    },
+
+    setDiscount: (type, value, reason, by) => {
+        const order = get().order;
+        if (!order) return;
+        if (value <= 0) {
+            get().clearDiscount();
+            return;
+        }
+        // recompute() calcule le montant réellement déduit (plafond compris)
+        // et les totaux nets de remise.
+        commit(set, recompute({
+            ...order,
+            discount_type: type,
+            discount_value: value,
+            discount_reason: reason.trim() || null,
+            discount_by: by,
+        }));
+    },
+
+    clearDiscount: () => {
+        const order = get().order;
+        if (!order) return;
+        commit(set, recompute({
+            ...order,
+            discount_type: null,
+            discount_value: null,
+            discount_amount: 0,
+            discount_reason: null,
+            discount_by: null,
+        }));
     },
 
     markPaid: () => {

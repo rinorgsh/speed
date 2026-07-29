@@ -9,6 +9,7 @@ import { useConfig } from '../store/useConfig';
 import { useAuth } from '../store/useAuth';
 import { useFavorites } from '../store/useFavorites';
 import type { RootStackParamList } from '../navigation/types';
+import { useT } from '../i18n';
 
 /**
  * Écran d'accueil / verrouillage : choix direct du serveur (grille de cartes).
@@ -29,6 +30,7 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
     const loadFavorites = useFavorites((s) => s.load);
     const toggleFavorite = useFavorites((s) => s.toggle);
     const [syncing, setSyncing] = useState(false);
+    const t = useT();
 
     const runSync = useCallback(async () => {
         setSyncing(true);
@@ -52,11 +54,11 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
     // Appui long sur le nom : réinitialiser l'appareil (changer de serveur/URL).
     const onResetPress = () => {
         Alert.alert(
-            'Réinitialiser l\'appareil',
-            `Effacer l'enrôlement actuel ?\n\nServeur : ${apiUrl ?? '—'}`,
+            t('Réinitialiser l\'appareil'),
+            `${t('Effacer l\'enrôlement actuel ?')}\n\n${apiUrl ?? '—'}`,
             [
-                { text: 'Annuler', style: 'cancel' },
-                { text: 'Réinitialiser', style: 'destructive', onPress: () => void resetDevice() },
+                { text: t('Annuler'), style: 'cancel' },
+                { text: t('Réinitialiser'), style: 'destructive', onPress: () => void resetDevice() },
             ],
         );
     };
@@ -65,17 +67,17 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
         <Screen>
             <View style={styles.topbar}>
                 <Pressable onLongPress={onResetPress} delayLongPress={800}>
-                    <Text style={styles.brand}>{settings.restaurant_name ?? 'POS Horeca'}</Text>
-                    <Text style={styles.brandSub}>{syncing ? 'Synchronisation…' : 'Point de vente'}</Text>
+                    <Text style={styles.brand}>{settings.restaurant_name ?? 'Speed'}</Text>
+                    <Text style={styles.brandSub}>{syncing ? t('Synchronisation…') : t('Point de vente')}</Text>
                 </Pressable>
                 <Pressable style={styles.profileChip} onPress={() => void clearActiveProfile()}>
                     <Store color={theme.colors.primary} size={16} />
-                    <Text style={styles.profileChipText} numberOfLines={1}>{profileName ?? 'Profil'}</Text>
+                    <Text style={styles.profileChipText} numberOfLines={1}>{profileName ?? t('Profil')}</Text>
                     <ChevronDown color={theme.colors.textMuted} size={15} />
                 </Pressable>
             </View>
 
-            <Text style={styles.title}>Choisir un serveur</Text>
+            <Text style={styles.title}>{t('Choisir un serveur')}</Text>
             <ScrollView contentContainerStyle={styles.grid}>
                 {ordered.map((u) => {
                     const fav = favoriteIds.includes(u.id);
@@ -109,22 +111,22 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
                         {syncing ? (
                             <>
                                 <ActivityIndicator color={theme.colors.primary} size="large" />
-                                <Text style={styles.emptyText}>Chargement de la configuration…</Text>
+                                <Text style={styles.emptyText}>{t('Chargement de la configuration…')}</Text>
                             </>
                         ) : (
                             <>
                                 <CloudOff color={theme.colors.textFaint} size={40} />
-                                <Text style={styles.emptyTitle}>Configuration non chargée</Text>
+                                <Text style={styles.emptyTitle}>{t('Configuration non chargée')}</Text>
                                 <Text style={styles.emptyText}>
-                                    {lastSyncError ?? 'Aucun utilisateur reçu du serveur.'}
+                                    {lastSyncError ?? t('Aucun utilisateur reçu du serveur.')}
                                 </Text>
                                 <Pressable style={styles.primaryBtn} onPress={() => void runSync()}>
                                     <RefreshCw color={theme.colors.onPrimary} size={18} />
-                                    <Text style={styles.primaryBtnText}>Réessayer</Text>
+                                    <Text style={styles.primaryBtnText}>{t('Réessayer')}</Text>
                                 </Pressable>
                                 <Pressable style={styles.ghostBtn} onPress={onResetPress} hitSlop={8}>
                                     <RotateCcw color={theme.colors.textFaint} size={15} />
-                                    <Text style={styles.ghostBtnText}>Changer de serveur</Text>
+                                    <Text style={styles.ghostBtnText}>{t('Changer de serveur')}</Text>
                                 </Pressable>
                             </>
                         )}

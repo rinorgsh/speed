@@ -11,6 +11,7 @@ import { connectRealtime, disconnectRealtime } from './src/services/realtime';
 import { startSyncLoop, stopSyncLoop } from './src/services/sync';
 import { useOTAUpdate } from './src/hooks/useOTAUpdate';
 import { useCart } from './src/store/useCart';
+import { useLocale } from './src/i18n';
 import { theme } from './src/theme';
 
 export default function App() {
@@ -30,6 +31,8 @@ export default function App() {
         (async () => {
             try {
                 await init();
+                // Langue choisie sur CET appareil (prime sur celle de l'établissement).
+                await useLocale.getState().load();
             } catch (e: any) {
                 setBootError(e?.message ?? 'Erreur de démarrage');
             }

@@ -3,9 +3,12 @@ import * as db from '../db/database';
 import {
     buildKitchenTicket,
     buildReceipt,
+    buildTableMoveNotice,
     enqueuePrint,
     groupLinesByPrinter,
+    groupLinesByStation,
 } from '../printer/printer';
+import { watchScreenDelivery } from './kds';
 import { EscPosBuilder } from '../printer/escpos';
 import type { Order, OrderLine } from '../types';
 
@@ -33,13 +36,37 @@ async function orderMeta(order: Order): Promise<{ tableLabel: string | null; roo
  */
 export async function printKitchenTickets(order: Order, lines: OrderLine[], isCancellation = false): Promise<boolean> {
     if (!lines.length) return true;
-    const { products, categories, printers, fallbackOrderPrinter } = useConfig.getState();
-    const groups = groupLinesByPrinter(lines, products, categories, printers, fallbackOrderPrinter());
+    const { products, categories, printers, prepStations, fallbackOrderPrinter } = useConfig.getState();
+    const groups = groupLinesByStation(lines, products, categories, prepStations, printers, fallbackOrderPrinter());
     const meta = await orderMeta(order);
-    let ok = groups.length > 0; // des lignes sans imprimante = échec
+
+    let ok = groups.length > 0; // des lignes sans destination = échec
     for (const g of groups) {
-        const data = buildKitchenTicket(order, g.lines, meta, isCancellation);
-        if (!(await enqueuePrint(g.printer, data))) ok = false;
+        const station = g.station;
+        const showsOnScreen = station ? station.mode === 'screen' || station.mode === 'both' : false;
+        const printsPaper = station ? station.mode === 'paper' || station.mode === 'both' : true;
+
+        if (printsPaper) {
+            if (!g.printer) { ok = false; continue; }
+            const data = buildKitchenTicket(order, g.lines, meta, isCancellation);
+            if (!(await enqueuePrint(g.printer, data))) ok = false;
+        }
+
+        // Poste à l'écran : l'envoi est porté par la synchro. On arme le repli
+        // papier au cas où l'écran n'accuserait jamais réception. Les annulations
+        // ne sont pas concernées : elles doivent sortir tout de suite en cuisine.
+        if (showsOnScreen && station && !isCancellation) {
+            watchScreenDelivery(station, order, g.lines, meta);
+        }
+        if (showsOnScreen && station && isCancellation && !printsPaper) {
+            const printer = station.fallback_printer_id
+                ? printers.find((p) => p.id === station.fallback_printer_id) ?? null
+                : null;
+            if (printer) {
+                const data = buildKitchenTicket(order, g.lines, meta, true);
+                if (!(await enqueuePrint(printer, data))) ok = false;
+            }
+        }
     }
     return ok;
 }
@@ -62,6 +89,31 @@ export async function printOrderCancellation(order: Order): Promise<boolean> {
         .map((l) => ({ ...l, qty: l.sent_qty }));
     if (!cancelLines.length) return true;
     return printKitchenTickets(order, cancelLines, true);
+}
+
+/**
+ * Prévient la cuisine d'un transfert / d'une fusion de table. L'avis part sur
+ * TOUTES les imprimantes de préparation concernées par les articles déjà
+ * envoyés : chaque poste qui a reçu un ticket doit apprendre le changement.
+ */
+export async function printTableMove(
+    kind: 'transfer' | 'merge',
+    fromLabel: string,
+    toLabel: string,
+    order: Order,
+): Promise<boolean> {
+    const { products, categories, printers, users, fallbackOrderPrinter } = useConfig.getState();
+    const sentLines = order.lines.filter((l) => !l.voided && (l.sent_qty ?? 0) > 0);
+    const groups = groupLinesByPrinter(sentLines, products, categories, printers, fallbackOrderPrinter());
+    if (!groups.length) return true;
+
+    const serverName = users.find((u) => u.id === order.server_id)?.name ?? '—';
+    let ok = true;
+    for (const g of groups) {
+        const data = buildTableMoveNotice(kind, fromLabel, toLabel, order, serverName);
+        if (!(await enqueuePrint(g.printer, data))) ok = false;
+    }
+    return ok;
 }
 
 /** Imprime la facture/ticket client sur l'imprimante receipt + ouvre le tiroir si cash. */

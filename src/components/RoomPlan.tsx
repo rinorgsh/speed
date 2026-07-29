@@ -32,6 +32,11 @@ interface Props {
     stateOf: (tableId: number) => TableState;
     onPressTable: (table: Table) => void;
     onLongPressTable?: (table: Table) => void;
+    /**
+     * Une table occupée a été déposée sur une autre : transfert si la cible est
+     * libre, fusion si elle est occupée. Le parent confirme et exécute.
+     */
+    onDropTable?: (source: Table, target: Table) => void;
     /** Seuil d'alerte sur la durée d'occupation (minutes). */
     slowAfterMinutes?: number;
 }
@@ -46,11 +51,15 @@ export function RoomPlan({
     stateOf,
     onPressTable,
     onLongPressTable,
+    onDropTable,
     slowAfterMinutes = 90,
 }: Props) {
     const [viewport, setViewport] = useState({ width: 0, height: 0 });
     const [zoom, setZoom] = useState(1);
     const [offset, setOffset] = useState({ x: 0, y: 0 });
+    // Table « soulevée » par un appui long, en attente d'être déposée.
+    const [dragTableId, setDragTableId] = useState<number | null>(null);
+    const [dropTargetId, setDropTargetId] = useState<number | null>(null);
 
     // Échelle de base : le plan entier tient dans la zone disponible.
     const baseScale = useMemo(() => {
@@ -61,21 +70,53 @@ export function RoomPlan({
     const scale = baseScale * zoom;
     const px = (units: number) => units * scale;
 
-    // Déplacement à un doigt + pincement à deux doigts, sans module natif.
+    // Le PanResponder est créé une seule fois : il lit l'état courant via des refs
+    // pour ne pas travailler sur des valeurs figées à la création.
+    const containerRef = useRef<View>(null);
+    const originRef = useRef({ x: 0, y: 0 }); // position du conteneur dans la fenêtre
+    const stateRef = useRef({ offset, zoom, scale, tables, dragTableId });
+    stateRef.current = { offset, zoom, scale, tables, dragTableId };
+
+    /** Table située sous un point de l'écran (coordonnées fenêtre). */
+    const tableAt = (pageX: number, pageY: number): Table | null => {
+        const { offset: off, scale: sc, tables: list } = stateRef.current;
+        if (!sc) return null;
+        const x = (pageX - originRef.current.x - off.x) / sc;
+        const y = (pageY - originRef.current.y - off.y) / sc;
+        for (const t of list) {
+            if (t.pos_x == null || t.pos_y == null) continue;
+            if (x >= t.pos_x && x <= t.pos_x + t.width && y >= t.pos_y && y <= t.pos_y + t.height) {
+                return t;
+            }
+        }
+        return null;
+    };
+
     const gesture = useRef({ startOffset: { x: 0, y: 0 }, startZoom: 1, startDistance: 0 });
     const panResponder = useMemo(
         () =>
             PanResponder.create({
-                // On ne capture qu'à partir d'un vrai mouvement : un simple appui
-                // doit rester disponible pour la table en dessous.
-                onMoveShouldSetPanResponder: (_e, g) =>
-                    Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6 || _e.nativeEvent.touches.length > 1,
+                // Une table soulevée prend la main immédiatement, avant la table
+                // elle-même : sinon le geste resterait piégé dans le Pressable.
+                onStartShouldSetPanResponderCapture: () => stateRef.current.dragTableId != null,
+                onMoveShouldSetPanResponderCapture: () => stateRef.current.dragTableId != null,
+                // Sinon on ne capture qu'à partir d'un vrai mouvement : un simple
+                // appui doit rester disponible pour la table en dessous.
+                onMoveShouldSetPanResponder: (e, g) =>
+                    Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6 || e.nativeEvent.touches.length > 1,
                 onPanResponderGrant: () => {
-                    gesture.current.startOffset = offset;
-                    gesture.current.startZoom = zoom;
+                    gesture.current.startOffset = stateRef.current.offset;
+                    gesture.current.startZoom = stateRef.current.zoom;
                     gesture.current.startDistance = 0;
                 },
                 onPanResponderMove: (e, g) => {
+                    // Mode déplacement de table : on surligne la cible survolée.
+                    if (stateRef.current.dragTableId != null) {
+                        const over = tableAt(e.nativeEvent.pageX, e.nativeEvent.pageY);
+                        setDropTargetId(over && over.id !== stateRef.current.dragTableId ? over.id : null);
+                        return;
+                    }
+
                     const touches = e.nativeEvent.touches;
                     if (touches.length >= 2) {
                         const [a, b] = touches;
@@ -93,8 +134,23 @@ export function RoomPlan({
                         y: gesture.current.startOffset.y + g.dy,
                     });
                 },
+                onPanResponderRelease: (e) => {
+                    const sourceId = stateRef.current.dragTableId;
+                    if (sourceId == null) return;
+                    const source = stateRef.current.tables.find((t) => t.id === sourceId);
+                    const target = tableAt(e.nativeEvent.pageX, e.nativeEvent.pageY);
+                    setDragTableId(null);
+                    setDropTargetId(null);
+                    if (source && target && target.id !== source.id) {
+                        onDropTable?.(source, target);
+                    }
+                },
+                onPanResponderTerminate: () => {
+                    setDragTableId(null);
+                    setDropTargetId(null);
+                },
             }),
-        [offset, zoom],
+        [onDropTable],
     );
 
     const recenter = () => {
@@ -110,8 +166,13 @@ export function RoomPlan({
 
     return (
         <View
+            ref={containerRef}
             style={styles.viewport}
-            onLayout={(e) => setViewport({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
+            onLayout={(e) => {
+                setViewport({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height });
+                // Origine dans la fenêtre : sert au test de survol pendant un déplacement.
+                containerRef.current?.measureInWindow((x, y) => { originRef.current = { x, y }; });
+            }}
             {...panResponder.panHandlers}
         >
             {baseScale > 0 && (
@@ -159,18 +220,28 @@ export function RoomPlan({
                         const occupied = st.status === 'occupied';
                         const slow = occupied && (st.minutes ?? 0) >= slowAfterMinutes;
                         const labelSize = Math.max(11, px(t.height) * 0.26);
+                        const lifted = dragTableId === t.id;
+                        const isDropTarget = dropTargetId === t.id;
 
                         return (
                             <Pressable
                                 key={`t${t.id}`}
                                 onPress={() => onPressTable(t)}
-                                onLongPress={() => onLongPressTable?.(t)}
+                                onLongPress={() => {
+                                    // Table occupée + déplacement possible : appui long =
+                                    // « soulever » pour transférer/fusionner. Sinon on
+                                    // retombe sur l'action longue habituelle (libérer).
+                                    if (occupied && onDropTable) setDragTableId(t.id);
+                                    else onLongPressTable?.(t);
+                                }}
                                 delayLongPress={400}
                                 style={({ pressed }) => [
                                     styles.table,
                                     isRound(t.shape) ? { borderRadius: px(Math.min(t.width, t.height)) / 2 } : styles.tableSquare,
                                     occupied ? styles.tableOccupied : styles.tableFree,
                                     slow && styles.tableSlow,
+                                    lifted && styles.tableLifted,
+                                    isDropTarget && styles.tableDropTarget,
                                     pressed && styles.tablePressed,
                                     {
                                         left: px(posX),
@@ -206,7 +277,20 @@ export function RoomPlan({
                 </View>
             )}
 
-            {(zoom !== 1 || offset.x !== 0 || offset.y !== 0) && (
+            {/* Bandeau d'aide pendant un déplacement : on annonce l'action à venir. */}
+            {dragTableId != null && (
+                <View style={styles.dragHint} pointerEvents="none">
+                    <Text style={styles.dragHintText}>
+                        {dropTargetId == null
+                            ? 'Glissez sur une autre table…'
+                            : stateOf(dropTargetId).status === 'occupied'
+                                ? `Fusionner avec la table ${tables.find((t) => t.id === dropTargetId)?.label}`
+                                : `Transférer vers la table ${tables.find((t) => t.id === dropTargetId)?.label}`}
+                    </Text>
+                </View>
+            )}
+
+            {dragTableId == null && (zoom !== 1 || offset.x !== 0 || offset.y !== 0) && (
                 <Pressable style={styles.recenter} onPress={recenter}>
                     <Text style={styles.recenterText}>Recentrer</Text>
                 </Pressable>
@@ -241,6 +325,10 @@ const styles = StyleSheet.create({
     tableFree: { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
     tableOccupied: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     tableSlow: { borderColor: theme.colors.warning, borderWidth: 3 },
+    // Table soulevée en vue d'un transfert/fusion.
+    tableLifted: { opacity: 0.55, borderColor: theme.colors.warning, borderWidth: 3 },
+    // Table survolée : c'est elle qui recevra la commande.
+    tableDropTarget: { borderColor: theme.colors.warning, borderWidth: 4 },
     tablePressed: { opacity: 0.7 },
     tableLabel: { color: theme.colors.text, fontWeight: '800' },
     tableLabelOccupied: { color: theme.colors.onPrimary },
@@ -260,4 +348,10 @@ const styles = StyleSheet.create({
         borderWidth: 1, borderColor: theme.colors.border,
     },
     recenterText: { color: theme.colors.text, fontWeight: '700', fontSize: 13 },
+    dragHint: {
+        position: 'absolute', left: theme.spacing(3), right: theme.spacing(3), bottom: theme.spacing(3),
+        backgroundColor: theme.colors.warning, borderRadius: theme.radius.md,
+        paddingVertical: theme.spacing(3), paddingHorizontal: theme.spacing(4), alignItems: 'center',
+    },
+    dragHintText: { color: '#1a1200', fontWeight: '800', fontSize: 15 },
 });

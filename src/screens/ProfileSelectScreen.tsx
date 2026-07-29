@@ -7,6 +7,7 @@ import { useAuth } from '../store/useAuth';
 import { useConfig } from '../store/useConfig';
 import { fetchProfiles } from '../api/client';
 import type { Profile } from '../types';
+import { useT } from '../i18n';
 
 /**
  * Choix du profil (« instance ») après l'enrôlement : Restaurant, Event…
@@ -23,6 +24,7 @@ export function ProfileSelectScreen() {
     const [loading, setLoading] = useState(true);
     const [selecting, setSelecting] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const t = useT();
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -49,11 +51,11 @@ export function ProfileSelectScreen() {
 
     const onReset = () => {
         Alert.alert(
-            'Réinitialiser l\'appareil',
-            `Effacer l'enrôlement ?\n\nServeur : ${apiUrl ?? '—'}`,
+            t('Réinitialiser l\'appareil'),
+            `${t('Effacer l\'enrôlement ?')}\n\n${apiUrl ?? '—'}`,
             [
-                { text: 'Annuler', style: 'cancel' },
-                { text: 'Réinitialiser', style: 'destructive', onPress: () => void resetDevice() },
+                { text: t('Annuler'), style: 'cancel' },
+                { text: t('Réinitialiser'), style: 'destructive', onPress: () => void resetDevice() },
             ],
         );
     };
@@ -61,8 +63,8 @@ export function ProfileSelectScreen() {
     return (
         <Screen>
             <View style={styles.header}>
-                <Text style={styles.title}>Choix du profil</Text>
-                <Text style={styles.subtitle}>Sélectionnez le mode d'utilisation</Text>
+                <Text style={styles.title}>{t('Choix du profil')}</Text>
+                <Text style={styles.subtitle}>{t('Sélectionnez le mode d\'utilisation')}</Text>
             </View>
 
             {loading ? (
@@ -70,7 +72,7 @@ export function ProfileSelectScreen() {
             ) : error ? (
                 <View style={styles.center}>
                     <Text style={styles.error}>{error}</Text>
-                    <Pressable onPress={load} style={styles.retry}><Text style={styles.retryText}>Réessayer</Text></Pressable>
+                    <Pressable onPress={load} style={styles.retry}><Text style={styles.retryText}>{t('Réessayer')}</Text></Pressable>
                 </View>
             ) : (
                 <ScrollView contentContainerStyle={styles.list}>
@@ -82,7 +84,7 @@ export function ProfileSelectScreen() {
                                 <View style={styles.cardIcon}><Icon color={theme.colors.primary} size={28} /></View>
                                 <View style={{ flex: 1 }}>
                                     <Text style={styles.cardName}>{p.name}</Text>
-                                    <Text style={styles.cardType}>{p.type === 'event' ? 'Événement' : 'Restaurant'}</Text>
+                                    <Text style={styles.cardType}>{p.type === 'event' ? t('Événement') : t('Restaurant')}</Text>
                                 </View>
                                 {busy ? <ActivityIndicator color={theme.colors.textMuted} /> : <ChevronRight color={theme.colors.textMuted} size={22} />}
                             </Pressable>
@@ -90,8 +92,8 @@ export function ProfileSelectScreen() {
                     })}
                     {!profiles.length && (
                         <View style={styles.center}>
-                            <Text style={styles.empty}>Aucun profil disponible sur ce serveur.</Text>
-                            <Pressable onPress={load} style={styles.retry}><Text style={styles.retryText}>Réessayer</Text></Pressable>
+                            <Text style={styles.empty}>{t('Aucun profil disponible sur ce serveur.')}</Text>
+                            <Pressable onPress={load} style={styles.retry}><Text style={styles.retryText}>{t('Réessayer')}</Text></Pressable>
                         </View>
                     )}
                 </ScrollView>
@@ -99,7 +101,7 @@ export function ProfileSelectScreen() {
 
             <Pressable onPress={onReset} style={styles.resetBtn} hitSlop={8}>
                 <RotateCcw color={theme.colors.textFaint} size={16} />
-                <Text style={styles.resetText}>Réinitialiser le serveur (URL)</Text>
+                <Text style={styles.resetText}>{t('Réinitialiser le serveur (URL)')}</Text>
             </Pressable>
         </Screen>
     );

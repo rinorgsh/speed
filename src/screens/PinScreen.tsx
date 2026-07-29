@@ -8,6 +8,7 @@ import { useConfig } from '../store/useConfig';
 import { useAuth } from '../store/useAuth';
 import { verifyPinOffline } from '../utils/pin';
 import type { RootStackParamList } from '../navigation/types';
+import { useT } from '../i18n';
 
 const PIN_LENGTH = 4;
 
@@ -20,6 +21,7 @@ export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStac
     const refreshSession = useAuth((s) => s.refreshSession);
     const [pin, setPin] = useState('');
     const [checking, setChecking] = useState(false);
+    const t = useT();
 
     // Le serveur choisi n'est plus en cache (config resynchronisée entre-temps) :
     // on informe au lieu d'afficher un écran vide.
@@ -27,8 +29,8 @@ export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStac
         return (
             <Screen>
                 <View style={styles.header}>
-                    <Text style={styles.name}>Utilisateur introuvable</Text>
-                    <Text style={styles.hint}>La configuration a changé. Revenez et choisissez à nouveau.</Text>
+                    <Text style={styles.name}>{t('Utilisateur introuvable')}</Text>
+                    <Text style={styles.hint}>{t('La configuration a changé. Revenez et choisissez à nouveau.')}</Text>
                 </View>
             </Screen>
         );
@@ -41,7 +43,7 @@ export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStac
         if (!ok) {
             setChecking(false);
             setPin('');
-            Alert.alert('PIN incorrect', 'Réessayez.');
+            Alert.alert(t('PIN incorrect'), t('Réessayez.'));
             return;
         }
         setServer(user);
@@ -61,7 +63,7 @@ export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStac
         } else if (user.role === 'admin') {
             navigation.replace('OpenSession');
         } else {
-            Alert.alert('Caisse fermée', 'Aucune session ouverte. Demandez à un administrateur d\'ouvrir la caisse.');
+            Alert.alert(t('Caisse fermée'), t('Aucune session ouverte. Demandez à un administrateur d\'ouvrir la caisse.'));
             navigation.goBack();
         }
     };
@@ -78,7 +80,7 @@ export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStac
         <Screen>
             <View style={styles.header}>
                 <Text style={styles.name}>{user.name}</Text>
-                <Text style={styles.hint}>{checking ? 'Vérification…' : 'Saisissez votre code PIN'}</Text>
+                <Text style={styles.hint}>{checking ? t('Vérification…') : t('Saisissez votre code PIN')}</Text>
                 <View style={styles.dots}>
                     {Array.from({ length: PIN_LENGTH }).map((_, i) => (
                         <View key={i} style={[styles.pinDot, i < pin.length && styles.pinDotFilled]} />

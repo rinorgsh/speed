@@ -3,6 +3,7 @@ import { useAuth } from '../store/useAuth';
 import { useConfig } from '../store/useConfig';
 import { useRealtime } from '../store/useRealtime';
 import { pullOpenOrders, receiveRemoteOrder } from './sync';
+import { markScreenAcknowledged } from './kds';
 import type { Category, Order, Product, RealtimeConfig } from '../types';
 
 /**
@@ -108,6 +109,10 @@ export function connectRealtime(config: RealtimeConfig | null, apiUrl: string, p
         channel.bind('OrderUpdated', (o: Order) => {
             console.log('[realtime] ⬇ OrderUpdated', o?.id, o?.status);
             void receiveRemoteOrder(o);
+        });
+        // L'écran cuisine a bien reçu : on annule l'impression de secours.
+        channel.bind('KdsAcknowledged', (e: { order_id: string; station_id: number }) => {
+            markScreenAcknowledged(e.order_id, e.station_id);
         });
         // Caisse fermée ailleurs -> on coupe la session locale (l'écran redirige).
         channel.bind('SessionClosed', () => {

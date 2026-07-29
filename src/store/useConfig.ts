@@ -3,7 +3,8 @@ import * as db from '../db/database';
 import { fetchBootstrap } from '../api/client';
 import { NETWORK } from '../config';
 import { useAuth } from './useAuth';
-import type { Category, OptionGroup, Printer, Product, RealtimeConfig, Room, Table, Tax, User } from '../types';
+import { useLocale } from '../i18n';
+import type { Category, OptionGroup, PrepStation, Printer, Product, RealtimeConfig, Room, Table, Tax, User } from '../types';
 
 /**
  * Config en cache (offline-first). loadFromCache lit le SQLite local ;
@@ -17,6 +18,7 @@ interface ConfigState {
     tables: Table[];
     taxes: Tax[];
     printers: Printer[];
+    prepStations: PrepStation[];
     categories: Category[];
     products: Product[];
     optionGroups: OptionGroup[];
@@ -56,6 +58,7 @@ export const useConfig = create<ConfigState>((set, get) => ({
     tables: [],
     taxes: [],
     printers: [],
+    prepStations: [],
     categories: [],
     products: [],
     optionGroups: [],
@@ -63,19 +66,23 @@ export const useConfig = create<ConfigState>((set, get) => ({
     lastSyncError: null,
 
     loadFromCache: async () => {
-        const [settings, users, rooms, tables, taxes, printers, categories, products, optionGroups, realtimeConfig] = await Promise.all([
+        const [settings, users, rooms, tables, taxes, printers, prepStations, categories, products, optionGroups, realtimeConfig] = await Promise.all([
             db.getSettings(),
             db.getUsers(),
             db.getRooms(),
             db.getAllTables(),
             db.getTaxes(),
             db.getPrinters(),
+            db.getPrepStations(),
             db.getCategories(),
             db.getProducts(),
             db.getOptionGroups(),
             db.getRealtimeConfig(),
         ]);
-        set({ settings, users, rooms, tables, taxes, printers, categories, products, optionGroups, realtimeConfig, ready: true });
+        set({ settings, users, rooms, tables, taxes, printers, prepStations, categories, products, optionGroups, realtimeConfig, ready: true });
+        // Langue de l'établissement : appliquée tant que l'appareil n'a pas
+        // fait de choix explicite (cf. useLocale.overridden).
+        useLocale.getState().applyEstablishment(settings.default_locale);
     },
 
     syncFromServer: async () => {

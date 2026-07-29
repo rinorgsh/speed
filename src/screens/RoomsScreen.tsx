@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
-import { Menu as MenuIcon, Wallet, LayoutGrid, Lock, ShoppingBag, Repeat, Map as MapIcon } from 'lucide-react-native';
+import { Menu as MenuIcon, Wallet, LayoutGrid, Lock, ShoppingBag, Repeat, Map as MapIcon, Languages } from 'lucide-react-native';
 
 // Tailles calculées (app verrouillée en portrait).
 const SCREEN_W = Dimensions.get('window').width;
@@ -21,6 +21,8 @@ import { useRealtime } from '../store/useRealtime';
 import { useTables } from '../store/useTables';
 import * as db from '../db/database';
 import { pullOpenOrders, resolveTableOrder, flushOutbox } from '../services/sync';
+import { mergeTables, transferTable } from '../services/tableOps';
+import { LOCALES, useLocale, useT } from '../i18n';
 import type { RoomDecoration, Table } from '../types';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -46,6 +48,11 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
     const [floorView, setFloorView] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const [opening, setOpening] = useState<number | null>(null); // table en cours d'ouverture
+    const [moving, setMoving] = useState(false); // transfert/fusion en cours
+    const [moveSource, setMoveSource] = useState<Table | null>(null); // choix de cible (vue liste)
+    const t = useT();
+    const locale = useLocale((s) => s.locale);
+    const setLocale = useLocale((s) => s.setLocale);
     const { width } = useWindowDimensions();
     const isTablet = width >= 700; // iPad -> caisse comptoir dédiée dispo
 
@@ -136,6 +143,65 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
         navigation.navigate('Pos');
     };
 
+    // Dépôt d'une table sur une autre : transfert si la cible est libre, fusion
+    // si elle est occupée. On confirme toujours — c'est une action à conséquence
+    // visible en cuisine et sur l'addition.
+    const handleDrop = (source: Table, target: Table) => {
+        if (moving) return;
+        const targetOccupied = occupied.includes(target.id);
+
+        const run = async (kind: 'transfer' | 'merge') => {
+            setMoving(true);
+            const res = kind === 'transfer'
+                ? await transferTable(source, target)
+                : await mergeTables(source, target);
+            setMoving(false);
+            if (!res.ok) Alert.alert('Déplacement impossible', res.reason);
+        };
+
+        if (targetOccupied) {
+            Alert.alert(
+                `Fusionner ${source.label} → ${target.label} ?`,
+                `Les articles de la table ${source.label} rejoignent la table ${target.label}. La table ${source.label} sera libérée.`,
+                [
+                    { text: 'Annuler', style: 'cancel' },
+                    { text: 'Fusionner', onPress: () => void run('merge') },
+                ],
+            );
+            return;
+        }
+
+        Alert.alert(
+            `Transférer ${source.label} → ${target.label} ?`,
+            `La commande de la table ${source.label} passe sur la table ${target.label}.`,
+            [
+                { text: 'Annuler', style: 'cancel' },
+                { text: 'Transférer', onPress: () => void run('transfer') },
+            ],
+        );
+    };
+
+    // Vue liste (téléphone) : le glisser-déposer n'a pas de sens, on passe par un
+    // menu d'actions sur appui long -> parité fonctionnelle avec le plan.
+    const tableActions = (table: Table) => {
+        if (!occupied.includes(table.id)) return;
+        const targets = tables.filter((t) => t.id !== table.id);
+        Alert.alert(`Table ${table.label}`, 'Que voulez-vous faire ?', [
+            { text: 'Annuler', style: 'cancel' },
+            {
+                text: 'Déplacer / fusionner',
+                onPress: () => {
+                    if (!targets.length) {
+                        Alert.alert('Aucune autre table', 'Cette salle ne contient qu\'une table.');
+                        return;
+                    }
+                    setMoveSource(table);
+                },
+            },
+            { text: 'Libérer la table', style: 'destructive', onPress: () => releaseTable(table) },
+        ]);
+    };
+
     const releaseTable = (table: Table) => {
         if (!occupied.includes(table.id)) return;
         Alert.alert(`Libérer la table ${table.label} ?`, 'La/les commande(s) en cours sur cette table seront annulées.', [
@@ -182,7 +248,7 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
             <View key={t.id} style={styles.tableWrap}>
                 <Pressable
                     onPress={() => openTable(t)}
-                    onLongPress={() => releaseTable(t)}
+                    onLongPress={() => tableActions(t)}
                     delayLongPress={600}
                     style={({ pressed }) => [styles.table, isOccupied ? styles.tableOccupied : styles.tableFree, pressed && styles.tablePressed]}
                 >
@@ -232,7 +298,7 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                             <Text style={styles.floorRoomName}>{r.name}</Text>
                             <View style={styles.grid}>
                                 {tablesOf(r.id).map(renderTable)}
-                                {!tablesOf(r.id).length && <Text style={styles.empty}>Aucune table.</Text>}
+                                {!tablesOf(r.id).length && <Text style={styles.empty}>{t('Aucune table.')}</Text>}
                             </View>
                         </View>
                     ))}
@@ -245,7 +311,8 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                     decorations={decorations}
                     stateOf={tableStateOf}
                     onPressTable={openTable}
-                    onLongPressTable={releaseTable}
+                    onLongPressTable={tableActions}
+                    onDropTable={handleDrop}
                 />
             ) : (
                 /* Vue par salle */
@@ -256,10 +323,40 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                 >
                     <ScrollView contentContainerStyle={styles.grid}>
                         {tables.map(renderTable)}
-                        {!tables.length && <Text style={styles.empty}>Aucune table dans cette salle.</Text>}
+                        {!tables.length && <Text style={styles.empty}>{t('Aucune table dans cette salle.')}</Text>}
                     </ScrollView>
                 </ImageBackground>
             )}
+
+            {/* Choix de la table de destination (vue liste, sans glisser-déposer) */}
+            <Modal visible={moveSource !== null} transparent animationType="fade" onRequestClose={() => setMoveSource(null)}>
+                <Pressable style={styles.menuBackdrop} onPress={() => setMoveSource(null)}>
+                    <View style={styles.pickerSheet}>
+                        <Text style={styles.pickerTitle}>{t('Table')} {moveSource?.label} →</Text>
+                        <Text style={styles.pickerHint}>
+                            {t('Une table libre = transfert. Une table occupée = fusion.')}
+                        </Text>
+                        <ScrollView contentContainerStyle={styles.pickerGrid}>
+                            {tables.filter((t) => t.id !== moveSource?.id).map((t) => {
+                                const busy = occupied.includes(t.id);
+                                return (
+                                    <Pressable
+                                        key={t.id}
+                                        style={[styles.pickerTable, busy && styles.pickerTableBusy]}
+                                        onPress={() => {
+                                            const src = moveSource;
+                                            setMoveSource(null);
+                                            if (src) handleDrop(src, t);
+                                        }}
+                                    >
+                                        <Text style={[styles.pickerTableText, busy && styles.pickerTableTextBusy]}>{t.label}</Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </ScrollView>
+                    </View>
+                </Pressable>
+            </Modal>
 
             {/* Menu déroulant */}
             <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={closeMenu}>
@@ -267,31 +364,43 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                     <View style={styles.menu}>
                         <Pressable style={styles.menuItem} onPress={openComptoir}>
                             <ShoppingBag color={theme.colors.text} size={20} />
-                            <Text style={styles.menuText}>Comptoir</Text>
+                            <Text style={styles.menuText}>{t('Comptoir')}</Text>
                         </Pressable>
                         {server?.role === 'admin' && (
                             <Pressable style={styles.menuItem} onPress={() => { closeMenu(); navigation.navigate('CloseSession'); }}>
                                 <Wallet color={theme.colors.text} size={20} />
-                                <Text style={styles.menuText}>Fermer la caisse</Text>
+                                <Text style={styles.menuText}>{t('Fermer la caisse')}</Text>
                             </Pressable>
                         )}
                         {planAvailable && !floorView && (
                             <Pressable style={styles.menuItem} onPress={() => { toggleViewMode(); closeMenu(); }}>
                                 <MapIcon color={theme.colors.text} size={20} />
-                                <Text style={styles.menuText}>{planMode ? 'Vue liste' : 'Vue plan'}</Text>
+                                <Text style={styles.menuText}>{planMode ? t('Vue liste') : t('Vue plan')}</Text>
                             </Pressable>
                         )}
                         <Pressable style={styles.menuItem} onPress={() => { setFloorView((v) => !v); closeMenu(); }}>
                             <LayoutGrid color={theme.colors.text} size={20} />
-                            <Text style={styles.menuText}>{floorView ? 'Vue par salle' : 'Switch floor view'}</Text>
+                            <Text style={styles.menuText}>{floorView ? t('Vue par salle') : t('Vue étage')}</Text>
+                        </Pressable>
+                        <Pressable
+                            style={styles.menuItem}
+                            onPress={() => {
+                                const i = LOCALES.findIndex((l) => l.value === locale);
+                                void setLocale(LOCALES[(i + 1) % LOCALES.length].value);
+                            }}
+                        >
+                            <Languages color={theme.colors.text} size={20} />
+                            <Text style={styles.menuText}>
+                                {t('Langue')} · {LOCALES.find((l) => l.value === locale)?.label}
+                            </Text>
                         </Pressable>
                         <Pressable style={styles.menuItem} onPress={changeProfile}>
                             <Repeat color={theme.colors.text} size={20} />
-                            <Text style={styles.menuText}>Changer de profil{profileName ? ` (${profileName})` : ''}</Text>
+                            <Text style={styles.menuText}>{t('Changer de profil')}{profileName ? ` (${profileName})` : ''}</Text>
                         </Pressable>
                         <Pressable style={styles.menuItem} onPress={() => { closeMenu(); navigation.reset({ index: 0, routes: [{ name: 'Unlock' }] }); }}>
                             <Lock color={theme.colors.text} size={20} />
-                            <Text style={styles.menuText}>Verrouiller</Text>
+                            <Text style={styles.menuText}>{t('Verrouiller')}</Text>
                         </Pressable>
                     </View>
                 </Pressable>
@@ -366,4 +475,20 @@ const styles = StyleSheet.create({
     },
     menuItem: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(3), paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(3.5) },
     menuText: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
+    // Sélecteur de table de destination (vue liste)
+    pickerSheet: {
+        position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '70%',
+        backgroundColor: theme.colors.surfaceAlt, borderTopLeftRadius: theme.radius.lg,
+        borderTopRightRadius: theme.radius.lg, padding: theme.spacing(4),
+    },
+    pickerTitle: { color: theme.colors.text, fontSize: 19, fontWeight: '800' },
+    pickerHint: { color: theme.colors.textMuted, fontSize: 13, marginTop: theme.spacing(1), marginBottom: theme.spacing(4) },
+    pickerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingBottom: theme.spacing(6) },
+    pickerTable: {
+        width: 76, height: 76, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: theme.colors.surface, borderWidth: 2, borderColor: theme.colors.border,
+    },
+    pickerTableBusy: { backgroundColor: theme.colors.success, borderColor: theme.colors.success },
+    pickerTableText: { color: theme.colors.text, fontSize: 22, fontWeight: '800' },
+    pickerTableTextBusy: { color: '#06281b' },
 });

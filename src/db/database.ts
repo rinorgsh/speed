@@ -6,6 +6,7 @@ import type {
     Order,
     OrderLine,
     PosSession,
+    PrepStation,
     Printer,
     Product,
     RealtimeConfig,
@@ -60,7 +61,10 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
       id INTEGER PRIMARY KEY, room_id INTEGER, kind TEXT, label TEXT,
       pos_x INTEGER, pos_y INTEGER, width INTEGER, height INTEGER, rotation INTEGER
     );
-    CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT, color TEXT, sort_order INTEGER, printer_id INTEGER);
+    CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT, color TEXT, sort_order INTEGER, printer_id INTEGER, station_id INTEGER);
+    CREATE TABLE IF NOT EXISTS prep_stations (
+      id INTEGER PRIMARY KEY, name TEXT, mode TEXT, printer_id INTEGER, fallback_printer_id INTEGER, sort_order INTEGER
+    );
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY, category_id INTEGER, name TEXT, price REAL, tax_id INTEGER, tax_takeaway_id INTEGER,
       price_includes_tax INTEGER, color TEXT, available INTEGER, is_open_price INTEGER, sort_order INTEGER,
@@ -70,7 +74,8 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
     CREATE TABLE IF NOT EXISTS pos_session (id INTEGER PRIMARY KEY, status TEXT, opened_by INTEGER, opened_at TEXT, opening_cash REAL, closed_by INTEGER, closed_at TEXT, closing_cash REAL);
     CREATE TABLE IF NOT EXISTS orders (
       id TEXT PRIMARY KEY, profile_id INTEGER, ticket_number INTEGER, version INTEGER DEFAULT 0, session_id INTEGER, room_id INTEGER, table_id INTEGER, server_id INTEGER,
-      status TEXT, service_type TEXT, covers INTEGER, subtotal REAL, tax_total REAL, total REAL,
+      status TEXT, merged_into TEXT, service_type TEXT, covers INTEGER, subtotal REAL, tax_total REAL, total REAL,
+      discount_type TEXT, discount_value REAL, discount_amount REAL DEFAULT 0, discount_reason TEXT, discount_by INTEGER,
       opened_at TEXT, paid_at TEXT, payments TEXT, synced INTEGER DEFAULT 0, updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS order_lines (
@@ -102,6 +107,16 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
         'ALTER TABLE tables ADD COLUMN rotation INTEGER DEFAULT 0',
         "ALTER TABLE tables ADD COLUMN shape TEXT DEFAULT 'round'",
         'ALTER TABLE tables ADD COLUMN seats INTEGER DEFAULT 4',
+        // Fusion de tables : sans cette colonne, l'outbox perdrait le lien avant l'envoi.
+        'ALTER TABLE orders ADD COLUMN merged_into TEXT',
+        // Remise sur l'addition.
+        'ALTER TABLE orders ADD COLUMN discount_type TEXT',
+        'ALTER TABLE orders ADD COLUMN discount_value REAL',
+        'ALTER TABLE orders ADD COLUMN discount_amount REAL DEFAULT 0',
+        'ALTER TABLE orders ADD COLUMN discount_reason TEXT',
+        'ALTER TABLE orders ADD COLUMN discount_by INTEGER',
+        // Postes de préparation (routage cuisine papier/écran).
+        'ALTER TABLE categories ADD COLUMN station_id INTEGER',
     ]) {
         await d.execAsync(sql).catch(() => {});
     }
@@ -140,7 +155,7 @@ export async function importBootstrap(payload: BootstrapPayload): Promise<void> 
     // vide. Toutes les requêtes passent par `txn` pour rester dans la transaction.
     await d.withExclusiveTransactionAsync(async (txn) => {
         // On vide puis ré-insère la config (les commandes locales ne sont pas touchées).
-        for (const t of ['cache_settings', 'users', 'taxes', 'printers', 'rooms', 'tables', 'room_decorations', 'categories', 'products', 'option_groups', 'pos_session']) {
+        for (const t of ['cache_settings', 'users', 'taxes', 'printers', 'rooms', 'tables', 'room_decorations', 'prep_stations', 'categories', 'products', 'option_groups', 'pos_session']) {
             await txn.execAsync(`DELETE FROM ${t};`);
         }
 
@@ -178,9 +193,14 @@ export async function importBootstrap(payload: BootstrapPayload): Promise<void> 
                     dec.id, r.id, dec.kind, dec.label ?? null, dec.pos_x, dec.pos_y, dec.width, dec.height, dec.rotation);
             }
         }
+        for (const st of payload.prep_stations ?? []) {
+            await txn.runAsync(
+                'INSERT INTO prep_stations (id, name, mode, printer_id, fallback_printer_id, sort_order) VALUES (?,?,?,?,?,?)',
+                st.id, st.name, st.mode, st.printer_id, st.fallback_printer_id, st.sort_order);
+        }
         for (const c of payload.categories) {
-            await txn.runAsync('INSERT INTO categories (id, parent_id, name, color, sort_order, printer_id) VALUES (?,?,?,?,?,?)',
-                c.id, c.parent_id, c.name, c.color, c.sort_order, c.printer_id);
+            await txn.runAsync('INSERT INTO categories (id, parent_id, name, color, sort_order, printer_id, station_id) VALUES (?,?,?,?,?,?,?)',
+                c.id, c.parent_id, c.name, c.color, c.sort_order, c.printer_id, c.station_id ?? null);
         }
         for (const p of payload.products) {
             await txn.runAsync(
@@ -252,6 +272,10 @@ export async function getTables(roomId: number): Promise<Table[]> {
 
 export async function getAllTables(): Promise<Table[]> {
     return getDb().getAllAsync<Table>('SELECT * FROM tables ORDER BY sort_order');
+}
+
+export async function getPrepStations(): Promise<PrepStation[]> {
+    return getDb().getAllAsync<PrepStation>('SELECT * FROM prep_stations ORDER BY sort_order');
 }
 
 export async function getCategories(): Promise<Category[]> {
@@ -349,10 +373,12 @@ export async function saveOrder(order: Order, synced = false): Promise<void> {
     await d.withExclusiveTransactionAsync(async (txn) => {
         await txn.runAsync(
             `INSERT OR REPLACE INTO orders
-       (id, profile_id, ticket_number, version, session_id, room_id, table_id, server_id, status, service_type, covers, subtotal, tax_total, total, opened_at, paid_at, payments, synced, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (id, profile_id, ticket_number, version, session_id, room_id, table_id, server_id, status, merged_into, service_type, covers, subtotal, tax_total, total,
+        discount_type, discount_value, discount_amount, discount_reason, discount_by, opened_at, paid_at, payments, synced, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             order.id, order.profile_id ?? null, order.ticket_number ?? null, order.version ?? 0, order.session_id, order.room_id, order.table_id, order.server_id, order.status,
-            order.service_type, order.covers, order.subtotal, order.tax_total, order.total,
+            order.merged_into ?? null, order.service_type, order.covers, order.subtotal, order.tax_total, order.total,
+            order.discount_type ?? null, order.discount_value ?? null, order.discount_amount ?? 0, order.discount_reason ?? null, order.discount_by ?? null,
             order.opened_at, order.paid_at, JSON.stringify(order.payments ?? []), synced ? 1 : 0, new Date().toISOString(),
         );
         await txn.runAsync('DELETE FROM order_lines WHERE order_id = ?', order.id);
@@ -492,6 +518,11 @@ export async function getOutbox(): Promise<Order[]> {
         result.push(rowToOrder(o, lines));
     }
     return result;
+}
+
+/** Retire les lignes d'une commande (fusion : elles ont été réaffectées ailleurs). */
+export async function deleteOrderLines(orderId: string): Promise<void> {
+    await getDb().runAsync('DELETE FROM order_lines WHERE order_id = ?', orderId);
 }
 
 /** Libère une table : annule sa/ses commande(s) ouverte(s). */

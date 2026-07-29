@@ -93,6 +93,23 @@ export interface Category {
     color: string | null;
     sort_order: number;
     printer_id: number | null;
+    /** Poste de préparation destinataire (prioritaire sur printer_id). */
+    station_id: number | null;
+}
+
+export type StationMode = 'paper' | 'screen' | 'both';
+
+/**
+ * Poste de préparation : destination d'envoi (cuisine, bar…) et mode de sortie.
+ * `fallback_printer_id` sert de filet quand l'écran n'accuse pas réception.
+ */
+export interface PrepStation {
+    id: number;
+    name: string;
+    mode: StationMode;
+    printer_id: number | null;
+    fallback_printer_id: number | null;
+    sort_order: number;
 }
 
 export interface Product {
@@ -162,6 +179,7 @@ export interface BootstrapPayload {
     rooms: Room[];
     taxes: Tax[];
     printers: Printer[];
+    prep_stations?: PrepStation[];
     categories: Category[];
     products: Product[];
     option_groups: OptionGroup[];
@@ -214,6 +232,15 @@ export interface Order {
     total: number;
     opened_at: string;
     paid_at: string | null;
+    // Remise sur l'addition. `discount_amount` est le montant réellement déduit,
+    // figé au moment du geste ; `total` est déjà net de remise.
+    discount_type?: 'percent' | 'amount' | null;
+    discount_value?: number | null;
+    discount_amount?: number;
+    discount_reason?: string | null;
+    discount_by?: number | null;
     lines: OrderLine[];
     payments: { method: PaymentMethod; amount: number }[];
+    /** Fusion : commande dans laquelle celle-ci a été absorbée (traçabilité). */
+    merged_into?: string | null;
 }

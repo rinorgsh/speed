@@ -1,8 +1,9 @@
 import { Buffer } from 'buffer';
 import TcpSocket from 'react-native-tcp-socket';
 import { PRINTING } from '../config';
-import type { Order, OrderLine, Printer, Product, Category, Tax } from '../types';
+import type { Order, OrderLine, PrepStation, Printer, Product, Category, Tax } from '../types';
 import { EscPosBuilder } from './escpos';
+import { tIn } from '../i18n';
 
 /**
  * Module d'impression POS — Epson TM-m30II (ESC/POS sur TCP 9100).
@@ -124,6 +125,42 @@ export function buildKitchenTicket(
     return b.build();
 }
 
+/**
+ * Avis cuisine de déplacement de table. Indispensable dès qu'un article est
+ * déjà parti en préparation : le ticket imprimé porte l'ANCIEN numéro de table,
+ * la cuisine doit savoir où sortir l'assiette.
+ */
+export function buildTableMoveNotice(
+    kind: 'transfer' | 'merge',
+    fromLabel: string,
+    toLabel: string,
+    order: Order,
+    serverName: string,
+): Buffer {
+    const b = new EscPosBuilder().init();
+
+    b.align('center').bold(true).size(2, 2);
+    b.line(kind === 'merge' ? '*** FUSION ***' : '*** TRANSFERT ***');
+    b.size(1, 1).bold(false).feed();
+
+    b.size(2, 2).bold(true).line(`Table ${fromLabel}`);
+    b.size(1, 1).line('devient');
+    b.size(2, 2).line(`Table ${toLabel}`);
+    b.size(1, 1).bold(false).feed();
+
+    b.align('left').rule();
+    b.line(`Serveur: ${serverName}`);
+    if (order.ticket_number != null) b.line(`Ticket #${order.ticket_number}`);
+    b.line(
+        kind === 'merge'
+            ? 'Les articles des deux tables sont regroupes.'
+            : 'Servir les articles deja envoyes a la nouvelle table.',
+    );
+    b.rule().align('center').line(timeStamp());
+    b.cut();
+    return b.build();
+}
+
 /** Facture / ticket client : prix + ventilation TVA + en-tête établissement. */
 export function buildReceipt(
     order: Order,
@@ -155,23 +192,39 @@ export function buildReceipt(
     }
     b.rule();
 
-    // Totaux + ventilation TVA (facture détaillée).
+    // Remise : affichée AVANT les totaux, avec le total brut, pour que le client
+    // voie ce qui lui a été accordé.
+    // Langue du ticket : réglage de l'établissement (« receipt_locale »), qui
+    // peut différer de la langue de travail du serveur qui encaisse.
+    const rt = (key: string) => tIn(settings.receipt_locale ?? settings.default_locale, key);
+    const discount = order.discount_amount ?? 0;
+    if (discount > 0) {
+        b.twoCols(rt('Total avant remise'), euro(round2(order.total + discount)));
+        const label = order.discount_type === 'percent'
+            ? `${rt('Remise')} ${order.discount_value ?? 0}%`
+            : rt('Remise');
+        b.bold(true).twoCols(label, `-${euro(discount)}`).bold(false);
+        if (order.discount_reason) b.line(`  (${order.discount_reason})`);
+    }
+
+    // Totaux + ventilation TVA (facture détaillée). La remise est déjà répartie
+    // au prorata dans les montants de chaque ligne -> la ventilation reste juste.
     if (detailed) {
-        for (const v of vatBreakdown(lines)) {
-            b.twoCols(`Dont TVA ${v.rate}%`, euro(v.taxAmount));
+        for (const v of vatBreakdown(lines, discount)) {
+            b.twoCols(`${rt('Dont TVA')} ${v.rate}%`, euro(v.taxAmount));
         }
     }
-    b.twoCols('Sous-total', euro(order.subtotal));
-    b.twoCols('TVA', euro(order.tax_total));
-    b.bold(true).size(1, 2).twoCols('TOTAL', euro(order.total)).size(1, 1).bold(false);
+    b.twoCols(rt('Sous-total'), euro(order.subtotal));
+    b.twoCols(rt('TVA'), euro(order.tax_total));
+    b.bold(true).size(1, 2).twoCols(rt('TOTAL'), euro(order.total)).size(1, 1).bold(false);
 
     // Paiements.
     b.feed();
     for (const p of order.payments) {
-        b.twoCols(p.method === 'cash' ? 'Especes' : 'Carte', euro(p.amount));
+        b.twoCols(p.method === 'cash' ? rt('Especes') : rt('Carte'), euro(p.amount));
     }
 
-    b.feed().align('center').line(settings.receipt_footer ?? 'Merci !');
+    b.feed().align('center').line(settings.receipt_footer ?? rt('Merci !'));
     b.line(timeStamp());
     b.cut();
     return b.build();
@@ -189,12 +242,23 @@ function timeStamp(): string {
 }
 
 /** Ventilation de la TVA par taux (à partir des snapshots de lignes). */
-export function vatBreakdown(lines: OrderLine[]): { rate: number; base: number; taxAmount: number }[] {
+export function vatBreakdown(
+    lines: OrderLine[],
+    discountAmount = 0,
+): { rate: number; base: number; taxAmount: number }[] {
+    // Une remise sur l'addition est répartie au prorata sur chaque taux : sinon
+    // la ventilation TVA du ticket ne correspondrait pas au total encaissé.
+    const gross = lines.reduce(
+        (s, l) => (l.voided ? s : s + (l.price_includes_tax_snapshot ? l.line_total : l.line_total * (1 + l.tax_rate_snapshot / 100))),
+        0,
+    );
+    const ratio = gross > 0 ? Math.max(gross - Math.max(discountAmount, 0), 0) / gross : 1;
+
     const map = new Map<number, { base: number; taxAmount: number }>();
     for (const l of lines) {
         if (l.voided) continue;
         const rate = l.tax_rate_snapshot;
-        const total = l.line_total;
+        const total = l.line_total * ratio;
         // line_total est TTC si price_includes_tax, sinon HT.
         const tax = l.price_includes_tax_snapshot
             ? total - total / (1 + rate / 100)
@@ -214,6 +278,45 @@ export function vatBreakdown(lines: OrderLine[]): { rate: number; base: number; 
  * Regroupe les lignes par imprimante de routage (catégorie → printer_id) pour
  * les tickets cuisine/bar. Les lignes sans imprimante vont sur `fallback`.
  */
+/**
+ * Regroupe les lignes par POSTE de préparation (catégorie → poste). Les lignes
+ * dont la catégorie n'a pas de poste retombent sur `legacyFallback`, ce qui
+ * préserve le comportement des installations pas encore migrées.
+ */
+export function groupLinesByStation(
+    lines: OrderLine[],
+    products: Product[],
+    categories: Category[],
+    stations: PrepStation[],
+    printers: Printer[],
+    legacyFallback: Printer | null,
+): { station: PrepStation | null; printer: Printer | null; lines: OrderLine[] }[] {
+    const productById = new Map(products.map((p) => [p.id, p]));
+    const categoryById = new Map(categories.map((c) => [c.id, c]));
+    const stationById = new Map(stations.map((s) => [s.id, s]));
+    const printerById = new Map(printers.map((p) => [p.id, p]));
+
+    // Clé de regroupement : id du poste, ou 0 pour le repli historique.
+    const groups = new Map<number, { station: PrepStation | null; printer: Printer | null; lines: OrderLine[] }>();
+
+    for (const line of lines) {
+        const product = line.product_id ? productById.get(line.product_id) : undefined;
+        const category = product ? categoryById.get(product.category_id) : undefined;
+        const station = category?.station_id ? stationById.get(category.station_id) ?? null : null;
+
+        const key = station?.id ?? 0;
+        const printer = station
+            ? (station.printer_id ? printerById.get(station.printer_id) ?? null : null)
+            : ((category?.printer_id ? printerById.get(category.printer_id) : undefined) ?? legacyFallback);
+
+        const group = groups.get(key) ?? { station, printer: printer ?? null, lines: [] };
+        group.lines.push(line);
+        groups.set(key, group);
+    }
+
+    return [...groups.values()];
+}
+
 export function groupLinesByPrinter(
     lines: OrderLine[],
     products: Product[],
