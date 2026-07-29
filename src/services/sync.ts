@@ -10,7 +10,21 @@ import type { Order } from '../types';
  * vers l'API. Idempotent grâce aux UUID — un renvoi ne crée pas de doublon.
  * Silencieux en cas d'absence de réseau (sera rejoué plus tard).
  */
+let inFlightPush: Promise<{ pushed: number; failed: boolean }> | null = null;
+
 export async function flushOutbox(): Promise<{ pushed: number; failed: boolean }> {
+    // Single-flight OBLIGATOIRE : cette fonction est appelée depuis une dizaine
+    // d'endroits, plus la boucle de synchro, plus le push débouncé du panier.
+    // Deux envois simultanés de la MÊME commande lisent le même état serveur et
+    // produisent chacun leur ticket cuisine -> l'écran affiche l'envoi en double.
+    if (inFlightPush) return inFlightPush;
+
+    inFlightPush = doFlushOutbox().finally(() => { inFlightPush = null; });
+
+    return inFlightPush;
+}
+
+async function doFlushOutbox(): Promise<{ pushed: number; failed: boolean }> {
     const outbox = await db.getOutbox();
     useRealtime.getState().setPending(outbox.length); // alimente l'indicateur de synchro
     if (!outbox.length) return { pushed: 0, failed: false };

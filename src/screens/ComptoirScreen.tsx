@@ -1,17 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Delete, LayoutGrid, Banknote, CreditCard, Search, X } from 'lucide-react-native';
+import { Delete, ChevronLeft, Banknote, CreditCard, Search, X, Send, ShoppingCart } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
 import { OptionsModal } from '../components/OptionsModal';
 import { theme } from '../theme';
 import { useConfig } from '../store/useConfig';
 import { useCart } from '../store/useCart';
 import { useAuth } from '../store/useAuth';
+import * as db from '../db/database';
 import { printCustomerReceipt, printKitchen } from '../services/printing';
 import { flushOutbox } from '../services/sync';
 import type { Category, Product, SelectedOption, ServiceType } from '../types';
 import type { RootStackParamList } from '../navigation/types';
+import { useT } from '../i18n';
 
 type Mode = 'qty' | 'price';
 
@@ -27,12 +29,26 @@ const euro = (n: number) => `${n.toFixed(2)} €`;
  * s'ouvre automatiquement. Réutilise toute la logique existante (useCart, impression,
  * sync). Aucune dépendance native -> déployable en OTA.
  */
-export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackParamList, 'Comptoir'>) {
+export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, 'Comptoir'>) {
     const { width } = useWindowDimensions();
+    // Mode TABLE : même disposition, mais service en salle. Une table n'est pas
+    // du pay & go — on envoie en cuisine, le client consomme, puis on encaisse
+    // (avec partage d'addition et remise éventuels).
+    //
+    // Le mode se déduit de la COMMANDE, pas des paramètres de navigation :
+    // revenir sur cet écran sans paramètre conserverait ceux du passage
+    // précédent, et une vente comptoir s'afficherait comme une table.
     const categories = useConfig((s) => s.categories);
     const allProducts = useConfig((s) => s.products);
     const order = useCart((s) => s.order);
     const server = useAuth((s) => s.server);
+    const allTables = useConfig((s) => s.tables);
+    const t = useT();
+
+    const tableMode = order?.table_id != null;
+    const tableLabel = order?.table_id != null
+        ? allTables.find((tb) => tb.id === order.table_id)?.label ?? route.params?.tableLabel ?? '—'
+        : null;
 
     const [serviceType, setServiceTypeState] = useState<ServiceType>('dine_in');
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -62,12 +78,33 @@ export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackP
     const shown = q ? allProducts.filter((p) => p.name.toLowerCase().includes(q)) : products;
     useEffect(() => { if (!searchActive) setSearch(''); }, [searchActive]);
 
-    // Ouvre une commande comptoir au montage si aucune n'est active.
+    // Comptoir : on REPREND la vente en cours si elle existe (y compris après un
+    // aller-retour par la salle), sinon on en ouvre une neuve. En mode table, la
+    // commande a déjà été reprise par l'écran des salles.
     useEffect(() => {
-        if (!order) startCounter(serviceType);
-        else setServiceTypeState(order.service_type);
+        if (order) { setServiceTypeState(order.service_type); return; }
+        if (tableMode) return;
+
+        void (async () => {
+            const { session } = useAuth.getState();
+            const enCours = session
+                ? await db.getOpenCounterOrder(session.id, useAuth.getState().profileId)
+                : null;
+            if (enCours) { useCart.getState().resume(enCours); setServiceTypeState(enCours.service_type); }
+            else startCounter(serviceType);
+        })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Quantité déjà au ticket, par produit : le compteur blanc des tuiles.
+    const counts = useMemo(() => {
+        const m = new Map<number, number>();
+        for (const l of order?.lines ?? []) {
+            if (l.voided || l.product_id == null) continue;
+            m.set(l.product_id, (m.get(l.product_id) ?? 0) + l.qty);
+        }
+        return m;
+    }, [order]);
 
     const lines = order ? order.lines.filter((l) => !l.voided && l.qty > 0) : [];
     const selected = lines.find((l) => l.id === selectedId) ?? null;
@@ -145,6 +182,29 @@ export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackP
         if (selected) useCart.getState().setLineQty(selected.id, 0);
     };
 
+    // Actions cuisine en attente : ajouts (+N) et annulations (−N), affichées
+    // séparément sur le bouton Order comme sur téléphone.
+    const pendingNew = useCart((s) => s.pendingNew());
+    const pendingCancel = useCart((s) => s.pendingCancel());
+    const toSend = pendingNew + pendingCancel;
+
+    /** Envoi en préparation, sans encaisser : le parcours normal d'une table. */
+    const sendToKitchen = async () => {
+        const cart = useCart.getState();
+        if (!cart.order || processing || !toSend) return;
+        setProcessing(true);
+        try {
+            const batch = cart.sendToKitchen();
+            const afterSend = useCart.getState().order;
+            if (afterSend) await printKitchen(afterSend, batch.newLines, batch.cancelLines).catch(() => {});
+            await flushOutbox();
+            setFlash(t('Envoyé en cuisine'));
+            setTimeout(() => setFlash(null), 1800);
+        } finally {
+            setProcessing(false);
+        }
+    };
+
     // --- Encaissement pay & go ---
     const pay = async (method: 'cash' | 'card') => {
         const cart = useCart.getState();
@@ -208,31 +268,34 @@ export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackP
     );
 
     return (
-        <Screen style={{ padding: 0 }} edges={['bottom']}>
+        // Cet écran n'a pas d'en-tête de navigation : il doit gérer LUI-MÊME
+        // toutes les marges de sécurité, sinon son contenu passe sous l'heure
+        // et la batterie (visible surtout sur iPad en paysage).
+        <Screen style={{ padding: 0 }} edges={['top', 'bottom', 'left', 'right']}>
             <View style={styles.root}>
                 {/* ---------- Produits ---------- */}
                 <View style={styles.left}>
                     <View style={styles.topbar}>
-                        <View>
-                            <Text style={styles.who}>Comptoir</Text>
+                        {/* Retour salle À GAUCHE : c'est là qu'on cherche un retour,
+                            comme le chevron d'un en-tête de navigation mobile. */}
+                        <Pressable onPress={() => navigation.navigate('Rooms')} style={styles.backBtn}>
+                            <ChevronLeft color={theme.colors.onPrimary} size={22} strokeWidth={2.5} />
+                            <Text style={styles.backText}>{t('Salles')}</Text>
+                        </Pressable>
+                        <View style={styles.titleBox}>
+                            <Text style={styles.who} numberOfLines={1}>{tableMode ? `${t('Table')} ${tableLabel}` : t('Comptoir')}</Text>
                             <Text style={styles.sub}>{server?.name}</Text>
                         </View>
                         <View style={styles.svcToggle}>
                             {(['dine_in', 'takeaway'] as ServiceType[]).map((st) => (
                                 <Pressable key={st} onPress={() => selectService(st)} style={[styles.svcBtn, serviceType === st && styles.svcBtnOn]}>
-                                    <Text style={[styles.svcText, serviceType === st && styles.svcTextOn]}>{st === 'dine_in' ? 'Sur place' : 'Emporter'}</Text>
+                                    <Text style={[styles.svcText, serviceType === st && styles.svcTextOn]}>{st === 'dine_in' ? t('Sur place') : t('Emporter')}</Text>
                                 </Pressable>
                             ))}
                         </View>
-                        <View style={styles.topRight}>
-                            <Pressable onPress={() => setSearchActive((v) => !v)} style={styles.iconBtn}>
-                                <Search color={theme.colors.text} size={20} />
-                            </Pressable>
-                            <Pressable onPress={() => navigation.navigate('Rooms')} style={styles.salleBtn}>
-                                <LayoutGrid color={theme.colors.text} size={18} />
-                                <Text style={styles.salleText}>Salle</Text>
-                            </Pressable>
-                        </View>
+                        <Pressable onPress={() => setSearchActive((v) => !v)} style={styles.iconBtn}>
+                            <Search color={theme.colors.text} size={20} />
+                        </Pressable>
                     </View>
 
                     {searchActive ? (
@@ -240,7 +303,7 @@ export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackP
                             <Search color={theme.colors.textMuted} size={18} />
                             <TextInput
                                 style={styles.searchInput}
-                                placeholder="Rechercher un produit…"
+                                placeholder={t('Rechercher un produit')}
                                 placeholderTextColor={theme.colors.textFaint}
                                 value={search}
                                 onChangeText={setSearch}
@@ -260,26 +323,36 @@ export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackP
                     )}
 
                     <ScrollView style={{ flex: 1, marginTop: theme.spacing(2) }} contentContainerStyle={[styles.grid, { gap: GAP }]}>
-                        {shown.map((p) => (
-                            <Pressable
-                                key={p.id}
-                                onPress={() => onProduct(p)}
-                                disabled={!p.available}
-                                style={[styles.product, { width: cell, height: cell, backgroundColor: p.color ?? theme.colors.surface }, !p.available && styles.unavailable]}
-                            >
-                                <Text style={styles.productName} numberOfLines={2}>{p.name}</Text>
-                                <Text style={styles.productPrice}>{p.is_open_price ? 'Prix libre' : euro(p.price)}</Text>
-                                {!p.available && <Text style={styles.badge86}>86</Text>}
-                            </Pressable>
-                        ))}
-                        {!shown.length && <Text style={styles.empty}>Aucun produit.</Text>}
+                        {shown.map((p) => {
+                            const qty = counts.get(p.id) ?? 0;
+                            return (
+                                <Pressable
+                                    key={p.id}
+                                    onPress={() => onProduct(p)}
+                                    disabled={!p.available}
+                                    style={[styles.product, { width: cell, height: cell, backgroundColor: p.color ?? theme.colors.surface }, !p.available && styles.unavailable]}
+                                >
+                                    <Text style={styles.productName} numberOfLines={2}>{p.name}</Text>
+                                    <Text style={styles.productPrice}>{p.is_open_price ? t('Prix libre') : euro(p.price)}</Text>
+                                    {qty > 0 && (
+                                        <View style={styles.counter}>
+                                            <Text style={styles.counterText}>{fmtQty(qty)}</Text>
+                                        </View>
+                                    )}
+                                    {!p.available && <Text style={styles.badge86}>86</Text>}
+                                </Pressable>
+                            );
+                        })}
+                        {!shown.length && <Text style={styles.empty}>{t('Aucun produit.')}</Text>}
                     </ScrollView>
                 </View>
 
                 {/* ---------- Ticket ---------- */}
                 <View style={[styles.ticket, { width: TICKET_W }]}>
                     <View style={styles.tHead}>
-                        <Text style={styles.tTitle}>Ticket {order?.ticket_number ? `#${order.ticket_number}` : ''}</Text>
+                        <Text style={styles.tTitle}>
+                            {tableMode ? `${t('Table')} ${tableLabel}` : 'Ticket'}{order?.ticket_number ? ` #${order.ticket_number}` : ''}
+                        </Text>
                         <Text style={styles.tTag}>{serviceType === 'dine_in' ? 'Sur place' : 'Emporter'}</Text>
                     </View>
 
@@ -299,12 +372,12 @@ export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackP
                                 </Pressable>
                             );
                         })}
-                        {!lines.length && <Text style={styles.tEmpty}>Touchez un produit pour commencer.</Text>}
+                        {!lines.length && <Text style={styles.tEmpty}>{t('Touchez un produit pour commencer.')}</Text>}
                     </ScrollView>
 
                     <View style={styles.totals}>
-                        <View style={styles.totalRow}><Text style={styles.taxLabel}>Dont TVA</Text><Text style={styles.taxValue}>{euro(order?.tax_total ?? 0)}</Text></View>
-                        <View style={styles.totalRow}><Text style={styles.totalLabel}>Total</Text><Text style={styles.totalValue}>{euro(total)}</Text></View>
+                        <View style={styles.totalRow}><Text style={styles.taxLabel}>{t('Dont TVA')}</Text><Text style={styles.taxValue}>{euro(order?.tax_total ?? 0)}</Text></View>
+                        <View style={styles.totalRow}><Text style={styles.totalLabel}>{t('Total')}</Text><Text style={styles.totalValue}>{euro(total)}</Text></View>
                     </View>
 
                     {/* Pavé Qté / Prix */}
@@ -338,15 +411,51 @@ export function ComptoirScreen({ navigation }: NativeStackScreenProps<RootStackP
                         ))}
                     </View>
 
-                    {/* Encaissement */}
-                    <View style={styles.pays}>
-                        <Pressable onPress={() => pay('cash')} disabled={!lines.length || processing} style={[styles.pay, styles.payCash, (!lines.length || processing) && styles.payDim]}>
-                            {processing ? <ActivityIndicator color="#06281b" /> : (<><Banknote color="#06281b" size={20} /><Text style={styles.payCashText}>Espèces</Text></>)}
-                        </Pressable>
-                        <Pressable onPress={() => pay('card')} disabled={!lines.length || processing} style={[styles.pay, styles.payCard, (!lines.length || processing) && styles.payDim]}>
-                            <CreditCard color={theme.colors.text} size={20} /><Text style={styles.payCardText}>Carte</Text>
-                        </Pressable>
-                    </View>
+                    {/* Actions du bas : une table s'envoie puis s'encaisse plus tard,
+                        un comptoir s'encaisse tout de suite (pay & go). */}
+                    {tableMode ? (
+                        /* Mêmes repères que sur téléphone : Order en ambre, Cart en vert. */
+                        <View style={styles.pays}>
+                            <Pressable
+                                onPress={sendToKitchen}
+                                disabled={!toSend || processing}
+                                style={[styles.actionBtn, styles.orderBtn, (!toSend || processing) && styles.btnDisabled]}
+                            >
+                                {processing ? <ActivityIndicator color="#fff" /> : (
+                                    <>
+                                        <Send color="#fff" size={20} />
+                                        <Text style={styles.actionText}>Order</Text>
+                                        {pendingNew > 0 && (
+                                            <View style={styles.badgeNew}><Text style={styles.badgeText}>+{fmtQty(pendingNew)}</Text></View>
+                                        )}
+                                        {pendingCancel > 0 && (
+                                            <View style={styles.badgeCancel}><Text style={styles.badgeText}>−{fmtQty(pendingCancel)}</Text></View>
+                                        )}
+                                    </>
+                                )}
+                            </Pressable>
+                            <Pressable
+                                onPress={() => navigation.navigate('Payment')}
+                                disabled={!lines.length || processing}
+                                style={[styles.actionBtn, styles.cartBtn, (!lines.length || processing) && styles.btnDisabled]}
+                            >
+                                <ShoppingCart color="#fff" size={20} />
+                                <Text style={styles.actionText}>Cart</Text>
+                                <View style={styles.cartInfo}>
+                                    <Text style={styles.cartInfoText}>{lines.length} · {euro(total)}</Text>
+                                </View>
+                            </Pressable>
+                        </View>
+                    ) : (
+                        <View style={styles.pays}>
+                            <Pressable onPress={() => pay('cash')} disabled={!lines.length || processing} style={[styles.pay, styles.payCash, (!lines.length || processing) && styles.payDim]}>
+                                {processing ? <ActivityIndicator color="#06281b" /> : (<><Banknote color="#06281b" size={20} /><Text style={styles.payCashText}>{t('Espèces')}</Text></>)}
+                            </Pressable>
+                            <Pressable onPress={() => pay('card')} disabled={!lines.length || processing} style={[styles.pay, styles.payCard, (!lines.length || processing) && styles.payDim]}>
+                                <CreditCard color={theme.colors.text} size={20} /><Text style={styles.payCardText}>{t('Carte')}</Text>
+                            </Pressable>
+                        </View>
+                    )}
                 </View>
             </View>
 
@@ -365,6 +474,14 @@ const styles = StyleSheet.create({
     // Colonne produits
     left: { flex: 1, paddingHorizontal: theme.spacing(3), paddingTop: theme.spacing(2) },
     topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.spacing(3), marginBottom: theme.spacing(2) },
+    // Retour salle : plein accent, impossible à manquer et clairement une action.
+    backBtn: {
+        flexDirection: 'row', alignItems: 'center', gap: theme.spacing(1.5),
+        backgroundColor: theme.colors.primary, borderRadius: theme.radius.md,
+        paddingLeft: theme.spacing(2), paddingRight: theme.spacing(3.5), height: 44,
+    },
+    backText: { color: theme.colors.onPrimary, fontWeight: '800', fontSize: 15 },
+    titleBox: { flex: 1, minWidth: 0 },
     who: { color: theme.colors.text, fontSize: 20, fontWeight: '800' },
     sub: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600', marginTop: 1 },
     svcToggle: { flexDirection: 'row', backgroundColor: theme.colors.surface, borderRadius: theme.radius.pill, borderWidth: 1, borderColor: theme.colors.border, padding: 3 },
@@ -372,10 +489,7 @@ const styles = StyleSheet.create({
     svcBtnOn: { backgroundColor: theme.colors.primary },
     svcText: { color: theme.colors.textMuted, fontWeight: '700', fontSize: 13 },
     svcTextOn: { color: theme.colors.onPrimary },
-    topRight: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2) },
     iconBtn: { width: 44, height: 44, borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' },
-    salleBtn: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.surfaceAlt, borderRadius: theme.radius.md, paddingHorizontal: theme.spacing(3.5), paddingVertical: theme.spacing(2.5), borderWidth: 1, borderColor: theme.colors.border },
-    salleText: { color: theme.colors.text, fontWeight: '700', fontSize: 14 },
 
     searchRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.md, paddingHorizontal: theme.spacing(3), height: 46, marginTop: theme.spacing(1) },
     searchInput: { flex: 1, color: theme.colors.text, fontSize: 15, height: '100%' },
@@ -390,7 +504,23 @@ const styles = StyleSheet.create({
     unavailable: { opacity: 0.4 },
     productName: { color: '#fff', fontWeight: '700', fontSize: 14 },
     productPrice: { color: '#fff', fontWeight: '800', fontSize: 15 },
+    counter: {
+        position: 'absolute', top: 6, right: 6, minWidth: 26, height: 26, borderRadius: 13,
+        backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6,
+    },
+    counterText: { color: theme.colors.bg, fontWeight: '800', fontSize: 14 },
     badge86: { position: 'absolute', top: 6, left: 8, color: '#fff', fontWeight: '800' },
+    // Boutons d'action en mode table : mêmes couleurs que le téléphone.
+    actionBtn: { flex: 1, height: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing(2), borderRadius: theme.radius.md },
+    orderBtn: { backgroundColor: theme.colors.warning },
+    cartBtn: { backgroundColor: theme.colors.success },
+    btnDisabled: { backgroundColor: theme.colors.surfaceAlt, opacity: 0.6 },
+    actionText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+    badgeNew: { backgroundColor: 'rgba(255,255,255,0.30)', minWidth: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 7 },
+    badgeCancel: { backgroundColor: theme.colors.danger, minWidth: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 7 },
+    badgeText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+    cartInfo: { position: 'absolute', right: 10, top: 8 },
+    cartInfoText: { color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: '700' },
     empty: { color: theme.colors.textMuted, padding: theme.spacing(4) },
 
     // Ticket

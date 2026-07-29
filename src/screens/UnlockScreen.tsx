@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { Star, Store, ChevronDown, RefreshCw, CloudOff, RotateCcw } from 'lucide-react-native';
@@ -10,6 +10,10 @@ import { useAuth } from '../store/useAuth';
 import { useFavorites } from '../store/useFavorites';
 import type { RootStackParamList } from '../navigation/types';
 import { useT } from '../i18n';
+
+const PAD = 16; // padding du Screen (spacing 4)
+const GAP = 16;
+const CARD_TARGET = 170; // largeur visée d'une carte serveur
 
 /**
  * Écran d'accueil / verrouillage : choix direct du serveur (grille de cartes).
@@ -31,6 +35,14 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
     const toggleFavorite = useFavorites((s) => s.toggle);
     const [syncing, setSyncing] = useState(false);
     const t = useT();
+    const { width } = useWindowDimensions();
+
+    // Grille de serveurs : 2 colonnes sur téléphone, davantage dès qu'il y a de
+    // la place. Une carte à 47 % de la largeur donnait des vignettes de 480 px
+    // sur iPad, avec un avatar minuscule perdu au milieu.
+    const cols = Math.max(2, Math.floor((width - PAD * 2 + GAP) / (CARD_TARGET + GAP)));
+    const cardSize = Math.floor((width - PAD * 2 - GAP * (cols - 1)) / cols);
+    const avatarSize = Math.round(cardSize * 0.42);
 
     const runSync = useCallback(async () => {
         setSyncing(true);
@@ -84,7 +96,7 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
                     return (
                         <Pressable
                             key={u.id}
-                            style={({ pressed }) => [styles.card, fav && styles.cardFav, pressed && styles.cardPressed]}
+                            style={({ pressed }) => [styles.card, { width: cardSize, height: cardSize }, fav && styles.cardFav, pressed && styles.cardPressed]}
                             onPress={() => navigation.navigate('Pin', { userId: u.id })}
                             onLongPress={() => toggleFavorite(u.id)}
                             delayLongPress={400}
@@ -94,10 +106,17 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
                                     <Star color="#fff" size={16} fill="#f59e0b" strokeWidth={1.5} />
                                 </View>
                             )}
-                            <View style={[styles.avatar, { backgroundColor: u.color ?? theme.colors.surfaceAlt }]}>
-                                <Text style={styles.initial}>{u.name.charAt(0).toUpperCase()}</Text>
+                            <View style={[styles.avatar, {
+                                width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2,
+                                backgroundColor: u.color ?? theme.colors.surfaceAlt,
+                            }]}>
+                                <Text style={[styles.initial, { fontSize: Math.round(avatarSize * 0.45) }]}>
+                                    {u.name.charAt(0).toUpperCase()}
+                                </Text>
                             </View>
-                            <Text style={styles.name} numberOfLines={1}>{u.name}</Text>
+                            <Text style={[styles.name, { fontSize: Math.max(15, Math.min(22, cardSize * 0.13)) }]} numberOfLines={1}>
+                                {u.name}
+                            </Text>
                         </Pressable>
                     );
                 })}
@@ -149,10 +168,8 @@ const styles = StyleSheet.create({
     },
     profileChipText: { color: theme.colors.text, fontWeight: '700', fontSize: 14, flexShrink: 1 },
     title: { color: theme.colors.text, fontSize: 20, fontWeight: '800', marginBottom: theme.spacing(4) },
-    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing(4), paddingBottom: theme.spacing(6) },
+    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingBottom: theme.spacing(6) },
     card: {
-        width: '47%',
-        aspectRatio: 1,
         backgroundColor: theme.colors.surface,
         borderRadius: theme.radius.lg,
         alignItems: 'center',
@@ -165,9 +182,9 @@ const styles = StyleSheet.create({
     cardFav: { borderColor: theme.colors.warning, borderWidth: 2 },
     cardPressed: { borderColor: theme.colors.borderStrong, transform: [{ scale: 0.97 }] },
     starBadge: { position: 'absolute', top: theme.spacing(3), right: theme.spacing(3) },
-    avatar: { width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center' },
-    initial: { color: '#fff', fontSize: 38, fontWeight: '800' },
-    name: { color: theme.colors.text, fontSize: 22, fontWeight: '700', paddingHorizontal: theme.spacing(2) },
+    avatar: { alignItems: 'center', justifyContent: 'center' },
+    initial: { color: '#fff', fontWeight: '800' },
+    name: { color: theme.colors.text, fontWeight: '700', paddingHorizontal: theme.spacing(2) },
     emptyBox: { width: '100%', alignItems: 'center', gap: theme.spacing(3), marginTop: theme.spacing(10) },
     emptyTitle: { color: theme.colors.text, fontSize: 18, fontWeight: '800', marginTop: theme.spacing(1) },
     emptyText: { color: theme.colors.textMuted, textAlign: 'center', paddingHorizontal: theme.spacing(4), lineHeight: 20 },

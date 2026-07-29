@@ -428,6 +428,27 @@ export async function getOpenOrderForTable(tableId: number): Promise<Order | nul
 }
 
 /**
+ * Vente COMPTOIR en cours (sans table) de la session. Une commande walk-in n'a
+ * pas de table sur laquelle retaper pour la retrouver : sans cette reprise, un
+ * aller-retour vers la salle la rendrait inaccessible à jamais.
+ */
+export async function getOpenCounterOrder(sessionId: number, profileId: number | null): Promise<Order | null> {
+    const o = await getDb().getFirstAsync<any>(
+        `SELECT * FROM orders
+         WHERE table_id IS NULL AND session_id = ? AND status IN ('open','sent')
+           AND (? IS NULL OR profile_id = ?)
+         ORDER BY opened_at DESC LIMIT 1`,
+        sessionId, profileId, profileId,
+    );
+    if (!o) return null;
+    const lines = await getDb().getAllAsync<any>('SELECT * FROM order_lines WHERE order_id = ?', o.id);
+    const order = rowToOrder(o, lines);
+
+    // Une commande vide n'a rien à reprendre : autant en ouvrir une neuve.
+    return order.lines.some((l) => !l.voided && l.qty > 0) ? order : null;
+}
+
+/**
  * Ids des tables « occupées » : commande ouverte AVEC au moins un article actif
  * (qty > 0) OU une action cuisine encore en attente (sent_qty > 0 → une annulation
  * pas encore envoyée). Ainsi une table dont on a supprimé le dernier produit envoyé

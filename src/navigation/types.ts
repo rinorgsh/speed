@@ -7,7 +7,9 @@ export type RootStackParamList = {
     OpenSession: undefined;
     CloseSession: undefined;
     Rooms: undefined;
-    Comptoir: undefined;
+    // Sans paramètre = caisse comptoir (vente directe). Avec une table =
+    // même disposition en deux colonnes, mais pour le service en salle.
+    Comptoir: { tableId: number; tableLabel: string; roomId: number | null } | undefined;
     Pos: undefined;
     Cart: undefined;
     Payment: undefined;

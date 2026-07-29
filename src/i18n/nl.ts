@@ -82,7 +82,17 @@ export const nl: Record<string, string> = {
     'Rechercher un produit': 'Zoek een product',
     'Couverts': 'Couverts',
 
+    'Addition': 'Rekening',
+    'Envoyé en cuisine': 'Naar de keuken gestuurd',
+
+    "Touchez un produit pour commencer.": "Tik op een product om te beginnen.",
+    "Aucun produit.": "Geen producten.",
+
     // --- Paiement ---
+    'Reste': 'Rest',
+    'Rendu monnaie': 'Wisselgeld',
+    'Prix libre': 'Vrije prijs',
+
     'Paiement': 'Betaling',
     'Total': 'Totaal',
     'Soldé': 'Voldaan',
@@ -118,6 +128,17 @@ export const nl: Record<string, string> = {
     "TOTAL": "TOTAAL",
     "Especes": "Contant",
     "Merci !": "Bedankt!",
+
+    // --- Addition (document non fiscal) ---
+    "Imprimer l'addition": "Rekening afdrukken",
+    "L'imprimante caisse n'a pas répondu.": "De kassaprinter reageerde niet.",
+    'Impression…': 'Afdrukken…',
+    'Addition non imprimée': 'Rekening niet afgedrukt',
+    'ADDITION': 'REKENING',
+    'Document non fiscal': 'Geen fiscaal document',
+    'Serveur': 'Kelner',
+    'A PAYER': 'TE BETALEN',
+    'Ticket de caisse remis apres paiement.': 'Kassaticket na betaling.',
 
     // --- Divers ---
     'Fermer': 'Sluiten',

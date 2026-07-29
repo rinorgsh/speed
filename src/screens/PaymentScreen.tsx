@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Banknote, CreditCard, Users, X, BadgePercent } from 'lucide-react-native';
+import { Banknote, CreditCard, Users, X, BadgePercent, ReceiptText } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
 import { Button } from '../components/Button';
 import { Keypad } from '../components/Keypad';
@@ -11,7 +11,8 @@ import { useCart } from '../store/useCart';
 import { useAuth } from '../store/useAuth';
 import { useConfig } from '../store/useConfig';
 import { canDiscount, discountMaxPercent } from '../utils/permissions';
-import { printCustomerReceipt } from '../services/printing';
+import { useT } from '../i18n';
+import { printBill, printCustomerReceipt } from '../services/printing';
 import { flushOutbox } from '../services/sync';
 import type { PaymentMethod } from '../types';
 import type { RootStackParamList } from '../navigation/types';
@@ -36,6 +37,11 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
     const [change, setChange] = useState(0);
     const [validating, setValidating] = useState(false);
     const [discountOpen, setDiscountOpen] = useState(false);
+    const [printingBill, setPrintingBill] = useState(false);
+
+    const t = useT();
+    const { width } = useWindowDimensions();
+    const isTablet = width >= 700;
 
     const mayDiscount = canDiscount(server, settings);
     const maxPercent = discountMaxPercent(settings);
@@ -117,88 +123,158 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
         }
     };
 
+    /**
+     * Imprime l'addition à présenter au client. Réimprimable à volonté : un
+     * client qui redemande la note ne doit pas obliger à encaisser d'abord.
+     */
+    const printTheBill = async () => {
+        if (printingBill) return;
+        setPrintingBill(true);
+        const ok = await printBill(order).catch(() => false);
+        setPrintingBill(false);
+        if (!ok) {
+            Alert.alert(t('Addition non imprimée'), t("L'imprimante caisse n'a pas répondu."));
+        }
+    };
+
     const settled = left <= 0.03;
+
+    // Les blocs sont extraits pour être recomposés selon la taille d'écran :
+    // une colonne sur téléphone, deux sur tablette. Sur un iPad, tout empiler
+    // donne des boutons démesurés et oblige à faire défiler.
+    const renderSummary = () => (
+        <View style={styles.summary}>
+            <Text style={styles.summaryLabel}>{t('Total')}</Text>
+            <Text style={styles.summaryTotal}>{order.total.toFixed(2)} €</Text>
+            {/* Remise en cours : montant déduit + motif, visibles avant de valider. */}
+            {(order.discount_amount ?? 0) > 0 && (
+                <View style={styles.discountBanner}>
+                    <Text style={styles.discountBannerText}>
+                        {t('Remise')} {order.discount_type === 'percent' ? `${order.discount_value} %` : t('Montant').toLowerCase()}
+                        {'  '}− {(order.discount_amount ?? 0).toFixed(2)} €
+                    </Text>
+                    {!!order.discount_reason && (
+                        <Text style={styles.discountReason} numberOfLines={1}>{order.discount_reason}</Text>
+                    )}
+                </View>
+            )}
+            <Text style={[styles.remaining, settled && { color: theme.colors.success }]}>
+                {settled ? t('Soldé') : `${t('Reste')} ${left.toFixed(2)} €`}
+            </Text>
+            {change > 0 && (
+                <View style={styles.changeBox}><Text style={styles.changeText}>{t('Rendu monnaie')} : {change.toFixed(2)} €</Text></View>
+            )}
+        </View>
+    );
+
+    const renderPayments = () => (
+        <>
+            {order.payments.map((p, i) => (
+                <View key={i} style={styles.payRow}>
+                    <Text style={styles.payMethod}>{p.method === 'cash' ? t('Espèces') : t('Carte')}</Text>
+                    <Text style={styles.payAmount}>{p.amount.toFixed(2)} €</Text>
+                    <Pressable onPress={() => deletePayment(i)} style={styles.payDelete} hitSlop={8}>
+                        <X color={theme.colors.danger} size={18} />
+                    </Pressable>
+                </View>
+            ))}
+        </>
+    );
+
+    const renderEntryAndKeypad = () => (
+        <>
+            <View style={styles.entryBox}>
+                <Text style={styles.entry}>{entry || left.toFixed(2)} €</Text>
+            </View>
+            <Keypad
+                compact={isTablet}
+                onKey={(d) => setEntry((a) => (d === '.' && a.includes('.') ? a : a + d))}
+                onDelete={() => setEntry((a) => a.slice(0, -1))}
+            />
+        </>
+    );
+
+    const renderMethods = () => (
+        <View style={styles.methods}>
+            <Pressable style={[styles.method, settled && styles.methodDim]} onPress={() => pay('cash')}>
+                <Banknote color={theme.colors.text} size={22} />
+                <Text style={styles.methodText}>{t('Espèces')}</Text>
+            </Pressable>
+            <Pressable style={[styles.method, settled && styles.methodDim]} onPress={() => pay('card')}>
+                <CreditCard color={theme.colors.text} size={22} />
+                <Text style={styles.methodText}>{t('Carte')}</Text>
+            </Pressable>
+        </View>
+    );
+
+    const renderInvoiceToggle = () => (
+        <View style={styles.invoiceRow}>
+            <Text style={styles.invoiceLabel}>{t('Facture détaillée (ventilation TVA)')}</Text>
+            <Switch value={invoice} onValueChange={setInvoice} />
+        </View>
+    );
+
+    const renderActions = () => (
+        <View style={isTablet ? styles.footerTablet : styles.footer}>
+            {/* La remise n'est modifiable qu'avant tout encaissement. */}
+            {mayDiscount && order.payments.length === 0 && (
+                <Pressable onPress={() => setDiscountOpen(true)} style={styles.splitBtn}>
+                    <BadgePercent color={theme.colors.text} size={18} />
+                    <Text style={styles.splitText}>
+                        {(order.discount_amount ?? 0) > 0 ? t('Modifier la remise') : t('Appliquer une remise')}
+                    </Text>
+                </Pressable>
+            )}
+            {/* L'addition se présente AVANT l'encaissement : c'est le geste normal
+                en salle. Document non fiscal, réimprimable. */}
+            {order.lines.some((l) => !l.voided && l.qty > 0) && (
+                <Pressable onPress={() => void printTheBill()} disabled={printingBill} style={styles.splitBtn}>
+                    <ReceiptText color={theme.colors.text} size={18} />
+                    <Text style={styles.splitText}>
+                        {printingBill ? t('Impression…') : t("Imprimer l'addition")}
+                    </Text>
+                </Pressable>
+            )}
+            {order.payments.length === 0 && order.lines.some((l) => !l.voided && l.qty > 0) && (
+                <Pressable onPress={() => navigation.navigate('Split')} style={styles.splitBtn}>
+                    <Users color={theme.colors.text} size={18} />
+                    <Text style={styles.splitText}>{t("Partager l'addition")}</Text>
+                </Pressable>
+            )}
+            <Button label={t('Valider le paiement')} variant="success" onPress={validate} loading={validating} disabled={!settled} />
+        </View>
+    );
 
     return (
         <Screen style={{ padding: 0 }} edges={['bottom']}>
-            <ScrollView contentContainerStyle={styles.scroll}>
-                {/* Résumé */}
-                <View style={styles.summary}>
-                    <Text style={styles.summaryLabel}>Total</Text>
-                    <Text style={styles.summaryTotal}>{order.total.toFixed(2)} €</Text>
-                    {/* Remise en cours : montant déduit + motif, visibles avant de valider. */}
-                    {(order.discount_amount ?? 0) > 0 && (
-                        <View style={styles.discountBanner}>
-                            <Text style={styles.discountBannerText}>
-                                Remise {order.discount_type === 'percent' ? `${order.discount_value} %` : 'montant'}
-                                {'  '}− {(order.discount_amount ?? 0).toFixed(2)} €
-                            </Text>
-                            {!!order.discount_reason && (
-                                <Text style={styles.discountReason} numberOfLines={1}>{order.discount_reason}</Text>
-                            )}
-                        </View>
-                    )}
-                    <Text style={[styles.remaining, settled && { color: theme.colors.success }]}>
-                        {settled ? 'Soldé' : `Reste ${left.toFixed(2)} €`}
-                    </Text>
-                    {change > 0 && (
-                        <View style={styles.changeBox}><Text style={styles.changeText}>Rendu monnaie : {change.toFixed(2)} €</Text></View>
-                    )}
+            {isTablet ? (
+                /* Tablette : le récapitulatif à gauche, la saisie à droite. Tout tient
+                   sans défilement et les zones tactiles gardent une taille normale. */
+                <View style={styles.tabletRoot}>
+                    <ScrollView style={styles.tabletCol} contentContainerStyle={styles.tabletColContent}>
+                        {renderSummary()}
+                        {renderPayments()}
+                        {renderInvoiceToggle()}
+                        {renderActions()}
+                    </ScrollView>
+                    <View style={styles.tabletSep} />
+                    <ScrollView style={styles.tabletCol} contentContainerStyle={styles.tabletColContent}>
+                        {renderEntryAndKeypad()}
+                        {renderMethods()}
+                    </ScrollView>
                 </View>
-
-                {/* Lignes de paiement (supprimables) */}
-                {order.payments.map((p, i) => (
-                    <View key={i} style={styles.payRow}>
-                        <Text style={styles.payMethod}>{p.method === 'cash' ? 'Espèces' : 'Carte'}</Text>
-                        <Text style={styles.payAmount}>{p.amount.toFixed(2)} €</Text>
-                        <Pressable onPress={() => deletePayment(i)} style={styles.payDelete} hitSlop={8}>
-                            <X color={theme.colors.danger} size={18} />
-                        </Pressable>
-                    </View>
-                ))}
-
-                {/* Montant en saisie (défaut = ce qui reste) */}
-                <View style={styles.entryBox}>
-                    <Text style={styles.entry}>{entry || left.toFixed(2)} €</Text>
-                </View>
-                <Keypad onKey={(d) => setEntry((a) => (d === '.' && a.includes('.') ? a : a + d))} onDelete={() => setEntry((a) => a.slice(0, -1))} />
-
-                {/* Modes de paiement */}
-                <View style={styles.methods}>
-                    <Pressable style={[styles.method, settled && styles.methodDim]} onPress={() => pay('cash')}>
-                        <Banknote color={theme.colors.text} size={22} />
-                        <Text style={styles.methodText}>Espèces</Text>
-                    </Pressable>
-                    <Pressable style={[styles.method, settled && styles.methodDim]} onPress={() => pay('card')}>
-                        <CreditCard color={theme.colors.text} size={22} />
-                        <Text style={styles.methodText}>Carte</Text>
-                    </Pressable>
-                </View>
-
-                <View style={styles.invoiceRow}>
-                    <Text style={styles.invoiceLabel}>Facture détaillée (ventilation TVA)</Text>
-                    <Switch value={invoice} onValueChange={setInvoice} />
-                </View>
-            </ScrollView>
-
-            <View style={styles.footer}>
-                {/* La remise n'est modifiable qu'avant tout encaissement. */}
-                {mayDiscount && order.payments.length === 0 && (
-                    <Pressable onPress={() => setDiscountOpen(true)} style={styles.splitBtn}>
-                        <BadgePercent color={theme.colors.text} size={18} />
-                        <Text style={styles.splitText}>
-                            {(order.discount_amount ?? 0) > 0 ? 'Modifier la remise' : 'Appliquer une remise'}
-                        </Text>
-                    </Pressable>
-                )}
-                {order.payments.length === 0 && order.lines.some((l) => !l.voided && l.qty > 0) && (
-                    <Pressable onPress={() => navigation.navigate('Split')} style={styles.splitBtn}>
-                        <Users color={theme.colors.text} size={18} />
-                        <Text style={styles.splitText}>Partager l'addition</Text>
-                    </Pressable>
-                )}
-                <Button label="Valider le paiement" variant="success" onPress={validate} loading={validating} disabled={!settled} />
-            </View>
+            ) : (
+                <>
+                    <ScrollView contentContainerStyle={styles.scroll}>
+                        {renderSummary()}
+                        {renderPayments()}
+                        {renderEntryAndKeypad()}
+                        {renderMethods()}
+                        {renderInvoiceToggle()}
+                    </ScrollView>
+                    {renderActions()}
+                </>
+            )}
 
             <DiscountModal
                 visible={discountOpen}
@@ -217,6 +293,12 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
 
 const styles = StyleSheet.create({
     scroll: { padding: theme.spacing(4) },
+    // Disposition tablette
+    tabletRoot: { flex: 1, flexDirection: 'row' },
+    tabletCol: { flex: 1 },
+    tabletColContent: { padding: theme.spacing(4), paddingBottom: theme.spacing(6) },
+    tabletSep: { width: 1, backgroundColor: theme.colors.border },
+    footerTablet: { paddingTop: theme.spacing(4), gap: theme.spacing(3) },
     summary: { alignItems: 'center', marginBottom: theme.spacing(4) },
     summaryLabel: { color: theme.colors.textMuted },
     summaryTotal: { color: theme.colors.text, fontSize: 42, fontWeight: '800', letterSpacing: -1 },

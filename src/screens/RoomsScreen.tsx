@@ -1,15 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Menu as MenuIcon, Wallet, LayoutGrid, Lock, ShoppingBag, Repeat, Map as MapIcon, Languages } from 'lucide-react-native';
 
-// Tailles calculées (app verrouillée en portrait).
-const SCREEN_W = Dimensions.get('window').width;
 const PAD = 16; // padding du Screen (spacing 4)
 const GAP = 12;
-const TABLE_COLS = 3;
-const TABLE_SIZE = Math.floor((SCREEN_W - PAD * 2 - GAP * (TABLE_COLS - 1)) / TABLE_COLS);
+// Largeur visée pour une tuile de table. Le nombre de colonnes en découle :
+// 3 sur un téléphone, davantage sur un iPad. Calculé DANS le composant pour
+// suivre les rotations — une constante de module resterait figée.
+const TABLE_TARGET = 150;
 import { Screen } from '../components/Screen';
 import { SyncBadge } from '../components/SyncBadge';
 import { RoomPlan, type TableState } from '../components/RoomPlan';
@@ -36,6 +36,7 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
     const server = useAuth((s) => s.server);
     const session = useAuth((s) => s.session);
     const profileName = useAuth((s) => s.profileName);
+    const profileId = useAuth((s) => s.profileId);
     const clearActiveProfile = useAuth((s) => s.clearActiveProfile);
     const { startNew, resume } = useCart();
     const occupied = useTables((s) => s.occupied);
@@ -55,6 +56,11 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
     const setLocale = useLocale((s) => s.setLocale);
     const { width } = useWindowDimensions();
     const isTablet = width >= 700; // iPad -> caisse comptoir dédiée dispo
+
+    // Grille de tables : jamais moins de 3 colonnes (rendu téléphone actuel),
+    // davantage dès qu'il y a de la place.
+    const tableCols = Math.max(3, Math.floor((width - PAD * 2 + GAP) / (TABLE_TARGET + GAP)));
+    const tableSize = Math.floor((width - PAD * 2 - GAP * (tableCols - 1)) / tableCols);
 
     // Changement de profil -> les salles changent : on resélectionne une salle valide
     // du profil courant (évite d'afficher une salle/onglet d'un autre profil).
@@ -140,7 +146,11 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
         setOpening(null);
         if (existing) resume(existing);
         else startNew({ sessionId: session.id, serverId: server.id, roomId: table.room_id, tableId: table.id });
-        navigation.navigate('Pos');
+
+        // Grand écran : même disposition que la caisse comptoir (grille produits +
+        // ticket), bien plus efficace qu'un parcours en trois écrans sur un iPad.
+        if (isTablet) navigation.navigate('Comptoir', { tableId: table.id, tableLabel: table.label, roomId: table.room_id });
+        else navigation.navigate('Pos');
     };
 
     // Dépôt d'une table sur une autre : transfert si la cible est libre, fusion
@@ -233,10 +243,21 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
 
     // Comptoir = vente sans table. Sur iPad : caisse dédiée (produits + ticket + pavé
     // Qté/Prix). Sur téléphone : même parcours qu'une table (écran Commande).
-    const openComptoir = () => {
+    const openComptoir = async () => {
         if (!session || !server) return;
         closeMenu();
-        startNew({ sessionId: session.id, serverId: server.id, roomId: null, tableId: null, serviceType: 'dine_in' });
+
+        // On REPREND la vente comptoir en cours s'il y en a une. Sans ça, un
+        // aller-retour par la salle repartait de zéro et le ticket saisi était
+        // perdu — une vente sans table n'est rattrapable par aucun autre écran.
+        const current = useCart.getState().order;
+        const enCours = current && current.table_id === null && ['open', 'sent'].includes(current.status)
+            ? current
+            : await db.getOpenCounterOrder(session.id, profileId);
+
+        if (enCours) resume(enCours);
+        else startNew({ sessionId: session.id, serverId: server.id, roomId: null, tableId: null, serviceType: 'dine_in' });
+
         if (isTablet) navigation.navigate('Comptoir');
         else navigation.navigate('Pos');
     };
@@ -245,16 +266,16 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
         const isOccupied = occupied.includes(t.id);
         const pendingCount = pending[t.id] ?? 0; // articles pas encore envoyés en cuisine
         return (
-            <View key={t.id} style={styles.tableWrap}>
+            <View key={t.id} style={[styles.tableWrap, { width: tableSize, height: tableSize }]}>
                 <Pressable
                     onPress={() => openTable(t)}
                     onLongPress={() => tableActions(t)}
                     delayLongPress={600}
-                    style={({ pressed }) => [styles.table, isOccupied ? styles.tableOccupied : styles.tableFree, pressed && styles.tablePressed]}
+                    style={({ pressed }) => [styles.table, { width: tableSize, height: tableSize }, isOccupied ? styles.tableOccupied : styles.tableFree, pressed && styles.tablePressed]}
                 >
                     {opening === t.id
                         ? <ActivityIndicator color={isOccupied ? '#06281b' : theme.colors.primary} />
-                        : <Text style={[styles.tableLabel, isOccupied && styles.tableLabelOccupied]}>{t.label}</Text>}
+                        : <Text style={[styles.tableLabel, { fontSize: Math.max(20, tableSize * 0.34) }, isOccupied && styles.tableLabelOccupied]}>{t.label}</Text>}
                 </Pressable>
                 {pendingCount > 0 && (
                     <View style={styles.pendingBadge} pointerEvents="none">
@@ -362,7 +383,7 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
             <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={closeMenu}>
                 <Pressable style={styles.menuBackdrop} onPress={closeMenu}>
                     <View style={styles.menu}>
-                        <Pressable style={styles.menuItem} onPress={openComptoir}>
+                        <Pressable style={styles.menuItem} onPress={() => void openComptoir()}>
                             <ShoppingBag color={theme.colors.text} size={20} />
                             <Text style={styles.menuText}>{t('Comptoir')}</Text>
                         </Pressable>
@@ -423,11 +444,9 @@ const styles = StyleSheet.create({
     bg: { flex: 1 },
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingBottom: theme.spacing(4) },
     // Conteneur d'une tuile (pour ancrer le badge qui déborde du coin).
-    tableWrap: { width: TABLE_SIZE, height: TABLE_SIZE },
+    tableWrap: {},
     // 3 grandes tables carrées par ligne (taille calculée pour remplir la largeur).
     table: {
-        width: TABLE_SIZE,
-        height: TABLE_SIZE,
         borderRadius: theme.radius.lg,
         borderWidth: 3,
         alignItems: 'center',
@@ -455,7 +474,7 @@ const styles = StyleSheet.create({
     tableFree: { backgroundColor: theme.colors.surface, borderColor: theme.colors.borderStrong },
     tableOccupied: { backgroundColor: theme.colors.success, borderColor: theme.colors.success },
     tablePressed: { opacity: 0.8, transform: [{ scale: 0.97 }] },
-    tableLabel: { color: theme.colors.text, fontSize: 40, fontWeight: '800' },
+    tableLabel: { color: theme.colors.text, fontWeight: '800' },
     tableLabelOccupied: { color: '#06281b' },
     empty: { color: theme.colors.textMuted },
     floorSection: { marginBottom: theme.spacing(5) },

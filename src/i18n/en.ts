@@ -82,7 +82,17 @@ export const en: Record<string, string> = {
     'Rechercher un produit': 'Search a product',
     'Couverts': 'Covers',
 
+    'Addition': 'Bill',
+    'Envoyé en cuisine': 'Sent to kitchen',
+
+    "Touchez un produit pour commencer.": "Tap a product to start.",
+    "Aucun produit.": "No products.",
+
     // --- Paiement ---
+    'Reste': 'Left',
+    'Rendu monnaie': 'Change',
+    'Prix libre': 'Open price',
+
     'Paiement': 'Payment',
     'Total': 'Total',
     'Soldé': 'Settled',
@@ -118,6 +128,17 @@ export const en: Record<string, string> = {
     "TOTAL": "TOTAL",
     "Especes": "Cash",
     "Merci !": "Thank you!",
+
+    // --- Addition (document non fiscal) ---
+    "Imprimer l'addition": "Print the bill",
+    "L'imprimante caisse n'a pas répondu.": "The register printer did not respond.",
+    'Impression…': 'Printing…',
+    'Addition non imprimée': 'Bill not printed',
+    'ADDITION': 'BILL',
+    'Document non fiscal': 'Not a fiscal document',
+    'Serveur': 'Server',
+    'A PAYER': 'TO PAY',
+    'Ticket de caisse remis apres paiement.': 'Receipt issued after payment.',
 
     // --- Divers ---
     'Fermer': 'Close',

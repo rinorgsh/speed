@@ -3,11 +3,16 @@ import { StyleSheet, View, ViewStyle } from 'react-native';
 import { Edge, SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../theme';
 
-/** Conteneur d'écran avec fond sombre et safe-area. */
+/**
+ * Conteneur d'écran avec fond sombre et marges de sécurité.
+ *
+ * Les côtés sont inclus par défaut : en paysage, l'encoche et les coins
+ * arrondis mordent sur les bords gauche/droite, pas seulement en haut.
+ */
 export function Screen({
     children,
     style,
-    edges = ['top', 'bottom'],
+    edges = ['top', 'bottom', 'left', 'right'],
 }: {
     children: React.ReactNode;
     style?: ViewStyle;

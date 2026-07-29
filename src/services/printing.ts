@@ -2,6 +2,7 @@ import { useConfig } from '../store/useConfig';
 import * as db from '../db/database';
 import {
     buildKitchenTicket,
+    buildBill,
     buildReceipt,
     buildTableMoveNotice,
     enqueuePrint,
@@ -114,6 +115,24 @@ export async function printTableMove(
         if (!(await enqueuePrint(g.printer, data))) ok = false;
     }
     return ok;
+}
+
+/**
+ * Imprime l'ADDITION (avant paiement). Aucun tiroir-caisse ouvert : rien n'a
+ * encore été encaissé. Peut être réimprimée autant de fois que demandé.
+ */
+export async function printBill(order: Order): Promise<boolean> {
+    const { settings, receiptPrinter } = useConfig.getState();
+    const printer = receiptPrinter();
+    if (!printer) return false;
+
+    const meta = await orderMeta(order);
+    const activeLines = order.lines.filter((l) => !l.voided && l.qty > 0);
+
+    return enqueuePrint(printer, buildBill(order, activeLines, settings, {
+        tableLabel: meta.tableLabel,
+        serverName: meta.serverName,
+    }));
 }
 
 /** Imprime la facture/ticket client sur l'imprimante receipt + ouvre le tiroir si cash. */

@@ -161,6 +161,66 @@ export function buildTableMoveNotice(
     return b.build();
 }
 
+/**
+ * ADDITION présentée au client avant paiement (« la note »).
+ *
+ * Ce n'est PAS un ticket de caisse : aucun paiement n'a eu lieu. Le document
+ * l'annonce clairement en tête et en pied, sans numéro de ticket mis en avant
+ * et sans ligne de règlement — il ne doit jamais pouvoir passer pour la preuve
+ * d'un encaissement.
+ */
+export function buildBill(
+    order: Order,
+    lines: OrderLine[],
+    settings: Record<string, string | null>,
+    meta: { tableLabel: string | null; serverName: string },
+): Buffer {
+    const b = new EscPosBuilder().init();
+    const rt = (key: string) => tIn(settings.receipt_locale ?? settings.default_locale, key);
+
+    // En-tête établissement.
+    b.align('center').bold(true).size(2, 2).line(settings.restaurant_name ?? 'POS');
+    b.size(1, 1).bold(false);
+    if (settings.address) b.line(settings.address);
+    if (settings.phone) b.line(settings.phone);
+
+    // Nature du document, en gros : c'est ce qui le distingue du ticket de caisse.
+    b.feed().bold(true).size(2, 2).line(rt('ADDITION')).size(1, 1).bold(false);
+    b.line(rt('Document non fiscal'));
+    b.feed();
+
+    b.align('left');
+    if (meta.tableLabel) b.line(`${rt('Table')}: ${meta.tableLabel}`);
+    if (order.covers) b.line(`${rt('Couverts')}: ${order.covers}`);
+    b.line(`${rt('Serveur')}: ${meta.serverName}`);
+    b.line(timeStamp());
+    b.rule();
+
+    for (const l of lines) {
+        b.twoCols(`${formatQty(l.qty)}x ${l.name_snapshot}`, euro(l.line_total));
+        for (const opt of l.options_snapshot) {
+            b.line(`   + ${opt.name}${opt.price_delta ? ` (${euro(opt.price_delta)})` : ''}`);
+        }
+    }
+    b.rule();
+
+    const discount = order.discount_amount ?? 0;
+    if (discount > 0) {
+        b.twoCols(rt('Total avant remise'), euro(round2(order.total + discount)));
+        const label = order.discount_type === 'percent'
+            ? `${rt('Remise')} ${order.discount_value ?? 0}%`
+            : rt('Remise');
+        b.bold(true).twoCols(label, `-${euro(discount)}`).bold(false);
+    }
+
+    b.twoCols(rt('TVA'), euro(order.tax_total));
+    b.bold(true).size(1, 2).twoCols(rt('A PAYER'), euro(order.total)).size(1, 1).bold(false);
+
+    b.feed().align('center').line(rt('Ticket de caisse remis apres paiement.'));
+    b.cut();
+    return b.build();
+}
+
 /** Facture / ticket client : prix + ventilation TVA + en-tête établissement. */
 export function buildReceipt(
     order: Order,
