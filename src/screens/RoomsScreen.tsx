@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Menu as MenuIcon, Wallet, LayoutGrid, Lock, ShoppingBag, Repeat, Map as MapIcon, Languages } from 'lucide-react-native';
@@ -336,17 +336,15 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                     onDropTable={handleDrop}
                 />
             ) : (
-                /* Vue par salle */
-                <ImageBackground
-                    source={currentRoom?.background_image_url ? { uri: currentRoom.background_image_url } : undefined}
-                    style={styles.bg}
-                    imageStyle={{ opacity: 0.25, borderRadius: theme.radius.md }}
-                >
+                /* Vue liste : PAS d'image de fond. Une photo derrière une grille de
+                   tuiles n'apporte aucune information et nuit à la lisibilité des
+                   états — l'image n'a de sens que sur le plan, où elle situe. */
+                <View style={styles.bg}>
                     <ScrollView contentContainerStyle={styles.grid}>
                         {tables.map(renderTable)}
                         {!tables.length && <Text style={styles.empty}>{t('Aucune table dans cette salle.')}</Text>}
                     </ScrollView>
-                </ImageBackground>
+                </View>
             )}
 
             {/* Choix de la table de destination (vue liste, sans glisser-déposer) */}

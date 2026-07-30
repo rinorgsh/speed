@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { Image, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Image, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import { theme } from '../theme';
 import type { Room, RoomDecoration, Table } from '../types';
 
@@ -55,34 +55,63 @@ export function RoomPlan({
     slowAfterMinutes = 90,
 }: Props) {
     const [viewport, setViewport] = useState({ width: 0, height: 0 });
-    const [zoom, setZoom] = useState(1);
-    const [offset, setOffset] = useState({ x: 0, y: 0 });
+    // Déplacement et zoom pilotés par des valeurs ANIMÉES, appliquées sur le
+    // thread natif : un geste ne redessine plus les 28 tables + l'image à chaque
+    // frame, il ne fait que déplacer une couche déjà composée par le GPU.
+    const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+    const zoomValue = useRef(new Animated.Value(1)).current;
+    // Copies lisibles en JS : le test de survol pendant un glisser en a besoin.
+    const live = useRef({ x: 0, y: 0, zoom: 1 });
+    // Sert uniquement à afficher « Recentrer ». Passé par une ref pour ne
+    // déclencher QU'UN SEUL rendu au premier geste — un setState par frame
+    // réintroduirait exactement le coût qu'on vient de supprimer.
+    const [transformed, setTransformed] = useState(false);
+    const transformedRef = useRef(false);
+    const markTransformed = () => {
+        if (transformedRef.current) return;
+        transformedRef.current = true;
+        setTransformed(true);
+    };
     // Table « soulevée » par un appui long, en attente d'être déposée.
     const [dragTableId, setDragTableId] = useState<number | null>(null);
     const [dropTargetId, setDropTargetId] = useState<number | null>(null);
 
-    // Échelle de base : le plan entier tient dans la zone disponible.
+    // Échelle de base : le plan entier tient dans la zone disponible, SANS
+    // manipulation. C'est l'état normal — le zoom n'est qu'une échappatoire.
     const baseScale = useMemo(() => {
         if (!viewport.width || !viewport.height) return 0;
         return Math.min(viewport.width / room.plan_width, viewport.height / room.plan_height);
     }, [viewport, room.plan_width, room.plan_height]);
 
-    const scale = baseScale * zoom;
-    const px = (units: number) => units * scale;
+    // La mise en page est figée à l'échelle de base : le zoom ne provoque donc
+    // aucun recalcul de largeurs/hauteurs, juste une mise à l'échelle GPU.
+    const px = (units: number) => units * baseScale;
+
+    useEffect(() => {
+        const a = pan.x.addListener(({ value }) => { live.current.x = value; });
+        const b = pan.y.addListener(({ value }) => { live.current.y = value; });
+        const c = zoomValue.addListener(({ value }) => { live.current.zoom = value; });
+        return () => { pan.x.removeListener(a); pan.y.removeListener(b); zoomValue.removeListener(c); };
+    }, [pan, zoomValue]);
 
     // Le PanResponder est créé une seule fois : il lit l'état courant via des refs
     // pour ne pas travailler sur des valeurs figées à la création.
     const containerRef = useRef<View>(null);
     const originRef = useRef({ x: 0, y: 0 }); // position du conteneur dans la fenêtre
-    const stateRef = useRef({ offset, zoom, scale, tables, dragTableId });
-    stateRef.current = { offset, zoom, scale, tables, dragTableId };
+    const stateRef = useRef({ baseScale, tables, dragTableId });
+    stateRef.current = { baseScale, tables, dragTableId };
 
-    /** Table située sous un point de l'écran (coordonnées fenêtre). */
+    /**
+     * Table située sous un point de l'écran. L'origine de la transformation est
+     * fixée en haut à gauche (transformOrigin), la conversion reste donc une
+     * simple soustraction puis division.
+     */
     const tableAt = (pageX: number, pageY: number): Table | null => {
-        const { offset: off, scale: sc, tables: list } = stateRef.current;
+        const { baseScale: bs, tables: list } = stateRef.current;
+        const sc = bs * live.current.zoom;
         if (!sc) return null;
-        const x = (pageX - originRef.current.x - off.x) / sc;
-        const y = (pageY - originRef.current.y - off.y) / sc;
+        const x = (pageX - originRef.current.x - live.current.x) / sc;
+        const y = (pageY - originRef.current.y - live.current.y) / sc;
         for (const t of list) {
             if (t.pos_x == null || t.pos_y == null) continue;
             if (x >= t.pos_x && x <= t.pos_x + t.width && y >= t.pos_y && y <= t.pos_y + t.height) {
@@ -92,7 +121,7 @@ export function RoomPlan({
         return null;
     };
 
-    const gesture = useRef({ startOffset: { x: 0, y: 0 }, startZoom: 1, startDistance: 0 });
+    const gesture = useRef({ startX: 0, startY: 0, startZoom: 1, startDistance: 0 });
     const panResponder = useMemo(
         () =>
             PanResponder.create({
@@ -105,8 +134,9 @@ export function RoomPlan({
                 onMoveShouldSetPanResponder: (e, g) =>
                     Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6 || e.nativeEvent.touches.length > 1,
                 onPanResponderGrant: () => {
-                    gesture.current.startOffset = stateRef.current.offset;
-                    gesture.current.startZoom = stateRef.current.zoom;
+                    gesture.current.startX = live.current.x;
+                    gesture.current.startY = live.current.y;
+                    gesture.current.startZoom = live.current.zoom;
                     gesture.current.startDistance = 0;
                 },
                 onPanResponderMove: (e, g) => {
@@ -126,13 +156,15 @@ export function RoomPlan({
                             return;
                         }
                         const next = gesture.current.startZoom * (distance / gesture.current.startDistance);
-                        setZoom(Math.min(Math.max(next, MIN_ZOOM), MAX_ZOOM));
+                        zoomValue.setValue(Math.min(Math.max(next, MIN_ZOOM), MAX_ZOOM));
+                        markTransformed();
                         return;
                     }
-                    setOffset({
-                        x: gesture.current.startOffset.x + g.dx,
-                        y: gesture.current.startOffset.y + g.dy,
+                    pan.setValue({
+                        x: gesture.current.startX + g.dx,
+                        y: gesture.current.startY + g.dy,
                     });
+                    markTransformed();
                 },
                 onPanResponderRelease: (e) => {
                     const sourceId = stateRef.current.dragTableId;
@@ -154,14 +186,23 @@ export function RoomPlan({
     );
 
     const recenter = () => {
-        setZoom(1);
-        setOffset({ x: 0, y: 0 });
+        Animated.parallel([
+            Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 9 }),
+            Animated.spring(zoomValue, { toValue: 1, useNativeDriver: true, friction: 9 }),
+        ]).start(() => { transformedRef.current = false; setTransformed(false); });
     };
 
     const planStyle = {
         width: px(room.plan_width),
         height: px(room.plan_height),
-        transform: [{ translateX: offset.x }, { translateY: offset.y }],
+        // Origine en haut à gauche : le zoom ne décale pas le plan, et la
+        // conversion écran -> plan reste triviale pour le test de survol.
+        transformOrigin: 'top left' as const,
+        transform: [
+            { translateX: pan.x },
+            { translateY: pan.y },
+            { scale: zoomValue },
+        ],
     };
 
     return (
@@ -176,7 +217,7 @@ export function RoomPlan({
             {...panResponder.panHandlers}
         >
             {baseScale > 0 && (
-                <View style={[styles.plan, planStyle]}>
+                <Animated.View style={[styles.plan, planStyle]}>
                     {room.background_image_url && (
                         <Image
                             source={{ uri: room.background_image_url }}
@@ -274,7 +315,7 @@ export function RoomPlan({
                             </Pressable>
                         );
                     })}
-                </View>
+                </Animated.View>
             )}
 
             {/* Bandeau d'aide pendant un déplacement : on annonce l'action à venir. */}
@@ -290,7 +331,7 @@ export function RoomPlan({
                 </View>
             )}
 
-            {dragTableId == null && (zoom !== 1 || offset.x !== 0 || offset.y !== 0) && (
+            {dragTableId == null && transformed && (
                 <Pressable style={styles.recenter} onPress={recenter}>
                     <Text style={styles.recenterText}>Recentrer</Text>
                 </Pressable>
