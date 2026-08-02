@@ -89,6 +89,19 @@ export const en: Record<string, string> = {
     'Aucune commande ouverte sur la table de destination.':
         'No open order on the destination table.',
 
+    // --- Actions sur une ligne du panier ---
+    'Commentaire': 'Comment',
+    'Modifier le commentaire': 'Edit comment',
+    "Retirer l'article": 'Remove item',
+    'Retirer': 'Remove',
+    'Enregistrer': 'Save',
+    'ex. sans oignon': 'e.g. no onion',
+    'Déjà envoyé en cuisine : prévenez-la de vive voix, le ticket est imprimé.':
+        'Already sent to the kitchen: tell them in person, the ticket is printed.',
+    'Retirer un article déjà envoyé ?': 'Remove an item already sent?',
+    'La cuisine a déjà reçu cet article. Le retrait lui sera signalé au prochain envoi.':
+        'The kitchen already received this item. The removal will be reported on the next send.',
+
     // --- Commande / panier ---
     'Commande': 'Order',
     'Panier': 'Cart',
@@ -103,6 +116,9 @@ export const en: Record<string, string> = {
     'Couverts': 'Covers',
 
     'Addition': 'Bill',
+    // Libellés courts des pastilles d'actions de l'écran de paiement.
+    'Partager': 'Split',
+    'Modifier': 'Edit',
     'Envoyé en cuisine': 'Sent to kitchen',
 
     "Touchez un produit pour commencer.": "Tap a product to start.",

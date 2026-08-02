@@ -367,6 +367,8 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.lineName} numberOfLines={1}>{l.name_snapshot}</Text>
                                         <Text style={[styles.lineMeta, isSel && mode === 'price' && styles.metaOn]}>{euro(l.unit_price_snapshot)}</Text>
+                                        {/* Commentaire de la ligne : visible partout où le ticket l'est. */}
+                                        {!!l.note && <Text style={styles.lineNote} numberOfLines={2}>{l.note}</Text>}
                                     </View>
                                     <Text style={styles.lineTotal}>{euro(l.line_total)}</Text>
                                 </Pressable>
@@ -537,6 +539,7 @@ const styles = StyleSheet.create({
     fieldOnText: { color: theme.colors.bg },
     lineName: { color: theme.colors.text, fontWeight: '700', fontSize: 14 },
     lineMeta: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600', marginTop: 1 },
+    lineNote: { color: theme.colors.warning, fontSize: 11, fontStyle: 'italic', marginTop: 2 },
     metaOn: { color: theme.colors.text, fontWeight: '800' },
     lineTotal: { color: theme.colors.text, fontWeight: '800', fontSize: 15 },
     tEmpty: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing(8), paddingHorizontal: theme.spacing(4) },

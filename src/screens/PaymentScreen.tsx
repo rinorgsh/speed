@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Banknote, CreditCard, Users, X, BadgePercent, ReceiptText } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
@@ -33,15 +33,17 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
     const settings = useConfig((s) => s.settings);
     const server = useAuth((s) => s.server);
     const [entry, setEntry] = useState('');
-    const [invoice, setInvoice] = useState(false);
     const [change, setChange] = useState(0);
     const [validating, setValidating] = useState(false);
     const [discountOpen, setDiscountOpen] = useState(false);
     const [printingBill, setPrintingBill] = useState(false);
 
     const t = useT();
-    const { width } = useWindowDimensions();
+    const { width, height } = useWindowDimensions();
     const isTablet = width >= 700;
+    // Petit téléphone : on resserre le pavé numérique pour que la saisie tienne
+    // sans défilement sous l'en-tête et au-dessus des boutons figés.
+    const shortScreen = height < 780;
 
     const mayDiscount = canDiscount(server, settings);
     const maxPercent = discountMaxPercent(settings);
@@ -88,7 +90,9 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
         const current = useCart.getState().order!;
         // Vente comptoir = sans salle ni table (walk-in).
         const wasCounter = current.room_id === null && current.table_id === null;
-        const printed = await printCustomerReceipt(current, invoice).catch(() => false);
+        // `false` = pas de ventilation TVA par taux sur le ticket. Le choix a été
+        // retiré de l'écran (voir renderInvoiceToggle, désactivé).
+        const printed = await printCustomerReceipt(current, false).catch(() => false);
         await flushOutbox();
         setValidating(false);
 
@@ -97,7 +101,7 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
         if (!printed) {
             await new Promise<void>((resolve) => {
                 Alert.alert('Ticket non imprimé', "L'imprimante caisse n'a pas répondu. Le paiement est bien enregistré.", [
-                    { text: 'Réimprimer', onPress: async () => { await printCustomerReceipt(current, invoice).catch(() => false); resolve(); } },
+                    { text: 'Réimprimer', onPress: async () => { await printCustomerReceipt(current, false).catch(() => false); resolve(); } },
                     { text: 'Continuer sans', style: 'cancel', onPress: () => resolve() },
                 ]);
             });
@@ -167,6 +171,98 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
         </View>
     );
 
+    /**
+     * Résumé compact du téléphone : Total et Reste sur une seule ligne, en tête
+     * d'écran et TOUJOURS visible. L'ancienne version empilait un total en 42 px
+     * qui poussait les moyens de paiement hors de l'écran.
+     */
+    const renderSummaryPhone = () => (
+        <View style={styles.phoneSummary}>
+            <View style={styles.phoneSummaryRow}>
+                <View>
+                    <Text style={styles.summaryLabel}>{t('Total')}</Text>
+                    <Text style={styles.phoneTotal}>{order.total.toFixed(2)} €</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.summaryLabel}>{settled ? '' : t('Reste')}</Text>
+                    <Text style={[styles.phoneRemaining, settled && { color: theme.colors.success }]}>
+                        {settled ? t('Soldé') : `${left.toFixed(2)} €`}
+                    </Text>
+                </View>
+            </View>
+
+            {(order.discount_amount ?? 0) > 0 && (
+                <View style={styles.discountBanner}>
+                    <Text style={styles.discountBannerText}>
+                        {t('Remise')} {order.discount_type === 'percent' ? `${order.discount_value} %` : t('Montant').toLowerCase()}
+                        {'  '}− {(order.discount_amount ?? 0).toFixed(2)} €
+                    </Text>
+                    {!!order.discount_reason && (
+                        <Text style={styles.discountReason} numberOfLines={1}>{order.discount_reason}</Text>
+                    )}
+                </View>
+            )}
+
+            {change > 0 && (
+                <View style={styles.changeBox}><Text style={styles.changeText}>{t('Rendu monnaie')} : {change.toFixed(2)} €</Text></View>
+            )}
+        </View>
+    );
+
+    /**
+     * Actions secondaires du téléphone, en pastilles compactes sous le résumé.
+     *
+     * Elles occupaient auparavant trois boutons pleine largeur épinglés en bas :
+     * elles poussaient Espèces/Carte sous la ligne de flottaison alors qu'elles
+     * servent bien plus rarement. Le bas de l'écran est réservé à ce qu'on
+     * touche à chaque encaissement.
+     */
+    const renderQuickActions = () => {
+        const hasLines = order.lines.some((l) => !l.voided && l.qty > 0);
+        const chips: { key: string; icon: typeof Users; label: string; onPress: () => void; disabled?: boolean }[] = [];
+
+        // La remise n'est modifiable qu'avant tout encaissement.
+        if (mayDiscount && order.payments.length === 0) {
+            chips.push({
+                key: 'discount',
+                icon: BadgePercent,
+                label: (order.discount_amount ?? 0) > 0 ? t('Modifier') : t('Remise'),
+                onPress: () => setDiscountOpen(true),
+            });
+        }
+        // L'addition se présente AVANT l'encaissement : geste normal en salle.
+        if (hasLines) {
+            chips.push({
+                key: 'bill',
+                icon: ReceiptText,
+                label: printingBill ? t('Impression…') : t('Addition'),
+                onPress: () => void printTheBill(),
+                disabled: printingBill,
+            });
+        }
+        if (hasLines && order.payments.length === 0) {
+            chips.push({ key: 'split', icon: Users, label: t('Partager'), onPress: () => navigation.navigate('Split') });
+        }
+
+        if (!chips.length) return null;
+
+        return (
+            <View style={styles.chips}>
+                {chips.map((c) => (
+                    <Pressable
+                        key={c.key}
+                        onPress={c.onPress}
+                        disabled={c.disabled}
+                        style={({ pressed }) => [styles.chip, pressed && styles.chipPressed, c.disabled && styles.chipDim]}
+                    >
+                        <c.icon color={theme.colors.text} size={16} />
+                        <Text style={styles.chipText} numberOfLines={1}>{c.label}</Text>
+                    </Pressable>
+                ))}
+            </View>
+        );
+    };
+
     const renderPayments = () => (
         <>
             {order.payments.map((p, i) => (
@@ -183,11 +279,11 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
 
     const renderEntryAndKeypad = () => (
         <>
-            <View style={styles.entryBox}>
-                <Text style={styles.entry}>{entry || left.toFixed(2)} €</Text>
+            <View style={[styles.entryBox, shortScreen && styles.entryBoxCompact]}>
+                <Text style={[styles.entry, shortScreen && styles.entryCompact]}>{entry || left.toFixed(2)} €</Text>
             </View>
             <Keypad
-                compact={isTablet}
+                compact={isTablet || shortScreen}
                 onKey={(d) => setEntry((a) => (d === '.' && a.includes('.') ? a : a + d))}
                 onDelete={() => setEntry((a) => a.slice(0, -1))}
             />
@@ -207,12 +303,30 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
         </View>
     );
 
-    const renderInvoiceToggle = () => (
-        <View style={styles.invoiceRow}>
-            <Text style={styles.invoiceLabel}>{t('Facture détaillée (ventilation TVA)')}</Text>
-            <Switch value={invoice} onValueChange={setInvoice} />
-        </View>
-    );
+    /*
+     * DÉSACTIVÉ (voir aussi l'appel à printCustomerReceipt, forcé à `false`).
+     *
+     * Ce que faisait l'interrupteur : ajouter au ticket client une ligne
+     * « Dont TVA 6% / 12% / 21% » par taux présent dans la commande. Rien de
+     * plus — le total de TVA, lui, est imprimé dans tous les cas.
+     *
+     * Pourquoi il est retiré : le mot « facture » est trompeur. Une vraie
+     * facture belge exige le nom et le n° de TVA du client et une numérotation
+     * séquentielle propre, que ce document n'a pas. On offrait donc un réglage
+     * de plus à chaque encaissement pour un gain quasi nul, sur l'écran qui doit
+     * justement aller le plus vite.
+     *
+     * Pour le rétablir : remettre l'état `invoice` (useState + Switch importé)
+     * et repasser `invoice` à printCustomerReceipt. Mais s'il s'agit d'émettre
+     * de vraies factures, c'est le sujet entier qu'il faut traiter (client,
+     * numérotation séquentielle, copie), pas cet interrupteur.
+     */
+    // const renderInvoiceToggle = () => (
+    //     <View style={styles.invoiceRow}>
+    //         <Text style={styles.invoiceLabel}>{t('Facture détaillée (ventilation TVA)')}</Text>
+    //         <Switch value={invoice} onValueChange={setInvoice} />
+    //     </View>
+    // );
 
     const renderActions = () => (
         <View style={isTablet ? styles.footerTablet : styles.footer}>
@@ -254,7 +368,6 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
                     <ScrollView style={styles.tabletCol} contentContainerStyle={styles.tabletColContent}>
                         {renderSummary()}
                         {renderPayments()}
-                        {renderInvoiceToggle()}
                         {renderActions()}
                     </ScrollView>
                     <View style={styles.tabletSep} />
@@ -264,16 +377,36 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
                     </ScrollView>
                 </View>
             ) : (
-                <>
-                    <ScrollView contentContainerStyle={styles.scroll}>
-                        {renderSummary()}
+                /* Téléphone : ce qu'on regarde (total, reste) est épinglé en haut,
+                   ce qu'on touche à chaque encaissement (Espèces, Carte, Valider)
+                   est épinglé en bas. Seule la saisie défile, et seulement sur les
+                   petits écrans. */
+                <View style={styles.phoneRoot}>
+                    <View style={styles.phoneHeader}>
+                        {renderSummaryPhone()}
+                        {renderQuickActions()}
+                    </View>
+
+                    <ScrollView
+                        style={styles.phoneScroll}
+                        contentContainerStyle={styles.phoneScrollContent}
+                        keyboardShouldPersistTaps="handled"
+                    >
                         {renderPayments()}
                         {renderEntryAndKeypad()}
-                        {renderMethods()}
-                        {renderInvoiceToggle()}
                     </ScrollView>
-                    {renderActions()}
-                </>
+
+                    <View style={styles.phoneBottom}>
+                        {renderMethods()}
+                        <Button
+                            label={t('Valider le paiement')}
+                            variant="success"
+                            onPress={validate}
+                            loading={validating}
+                            disabled={!settled}
+                        />
+                    </View>
+                </View>
             )}
 
             <DiscountModal
@@ -293,6 +426,33 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
 
 const styles = StyleSheet.create({
     scroll: { padding: theme.spacing(4) },
+    // Disposition téléphone : en-tête figé / saisie défilante / actions figées.
+    phoneRoot: { flex: 1 },
+    phoneHeader: {
+        paddingHorizontal: theme.spacing(4), paddingTop: theme.spacing(3), paddingBottom: theme.spacing(3),
+        borderBottomWidth: 1, borderColor: theme.colors.border,
+    },
+    phoneScroll: { flex: 1 },
+    phoneScrollContent: { paddingHorizontal: theme.spacing(4), paddingTop: theme.spacing(3), paddingBottom: theme.spacing(2) },
+    phoneBottom: {
+        paddingHorizontal: theme.spacing(4), paddingTop: theme.spacing(3), paddingBottom: theme.spacing(3),
+        borderTopWidth: 1, borderColor: theme.colors.border, gap: theme.spacing(3),
+    },
+    phoneSummary: {},
+    phoneSummaryRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
+    phoneTotal: { color: theme.colors.text, fontSize: 34, fontWeight: '800', letterSpacing: -0.5 },
+    phoneRemaining: { color: theme.colors.warning, fontSize: 22, fontWeight: '800' },
+    // Actions secondaires en pastilles : présentes sans voler la place du bas.
+    chips: { flexDirection: 'row', gap: theme.spacing(2), marginTop: theme.spacing(3) },
+    chip: {
+        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        gap: theme.spacing(1.5), height: 42, borderRadius: theme.radius.pill,
+        backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border,
+        paddingHorizontal: theme.spacing(2),
+    },
+    chipPressed: { backgroundColor: theme.colors.surfaceAlt },
+    chipDim: { opacity: 0.5 },
+    chipText: { color: theme.colors.text, fontWeight: '700', fontSize: 13, flexShrink: 1 },
     // Disposition tablette
     tabletRoot: { flex: 1, flexDirection: 'row' },
     tabletCol: { flex: 1 },
@@ -318,6 +478,8 @@ const styles = StyleSheet.create({
     payDelete: { padding: theme.spacing(1) },
     entryBox: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border, paddingVertical: theme.spacing(5), alignItems: 'center', marginTop: theme.spacing(2), marginBottom: theme.spacing(4) },
     entry: { color: theme.colors.text, fontSize: 32, fontWeight: '800' },
+    entryBoxCompact: { paddingVertical: theme.spacing(3), marginTop: 0, marginBottom: theme.spacing(2.5) },
+    entryCompact: { fontSize: 26 },
     methods: { flexDirection: 'row', gap: theme.spacing(3), marginTop: theme.spacing(2) },
     method: { flex: 1, flexDirection: 'row', gap: theme.spacing(2), alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceAlt, borderRadius: theme.radius.md, height: 62, borderWidth: 1, borderColor: theme.colors.border },
     methodDim: { opacity: 0.5 },

@@ -89,6 +89,19 @@ export const nl: Record<string, string> = {
     'Aucune commande ouverte sur la table de destination.':
         'Geen lopende bestelling op de doeltafel.',
 
+    // --- Actions sur une ligne du panier ---
+    'Commentaire': 'Opmerking',
+    'Modifier le commentaire': 'Opmerking wijzigen',
+    "Retirer l'article": 'Artikel verwijderen',
+    'Retirer': 'Verwijderen',
+    'Enregistrer': 'Opslaan',
+    'ex. sans oignon': 'bv. zonder ui',
+    'Déjà envoyé en cuisine : prévenez-la de vive voix, le ticket est imprimé.':
+        'Al naar de keuken gestuurd: verwittig hen mondeling, het ticket is afgedrukt.',
+    'Retirer un article déjà envoyé ?': 'Een al verstuurd artikel verwijderen?',
+    'La cuisine a déjà reçu cet article. Le retrait lui sera signalé au prochain envoi.':
+        'De keuken heeft dit artikel al ontvangen. De verwijdering wordt bij de volgende zending gemeld.',
+
     // --- Commande / panier ---
     'Commande': 'Bestelling',
     'Panier': 'Winkelmandje',
@@ -103,6 +116,9 @@ export const nl: Record<string, string> = {
     'Couverts': 'Couverts',
 
     'Addition': 'Rekening',
+    // Libellés courts des pastilles d'actions de l'écran de paiement.
+    'Partager': 'Splitsen',
+    'Modifier': 'Wijzigen',
     'Envoyé en cuisine': 'Naar de keuken gestuurd',
 
     "Touchez un produit pour commencer.": "Tik op een product om te beginnen.",

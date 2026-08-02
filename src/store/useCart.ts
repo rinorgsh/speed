@@ -35,6 +35,7 @@ interface CartState {
     decrementLine: (lineId: string) => void;
     setLineQty: (lineId: string, qty: number) => void;
     setLinePrice: (lineId: string, price: number) => void;
+    setLineNote: (lineId: string, note: string | null) => void;
     settleLines: (assignments: { lineId: string; qty: number }[]) => void;
     cancelOrder: () => void;
     sendToKitchen: () => KitchenBatch;
@@ -239,6 +240,21 @@ export const useCart = create<CartState>((set, get) => ({
             l.id === lineId ? { ...l, unit_price_snapshot: p, line_total: lineTotal(p, optionsDelta(l.options_snapshot), l.qty) } : l,
         );
         commit(set, recompute({ ...order, lines }));
+    },
+
+    /**
+     * Commentaire libre sur une ligne (« sans oignon », « cuisson bleue »).
+     *
+     * Modifiable à tout moment depuis le panier, y compris sur une ligne déjà
+     * partie en cuisine : le prix ne bouge pas, donc rien à recalculer. La
+     * cuisine, elle, a déjà son ticket — c'est à l'appelant de prévenir.
+     */
+    setLineNote: (lineId, note) => {
+        const order = get().order;
+        if (!order) return;
+        const clean = note?.trim() ? note.trim() : null;
+        const lines = order.lines.map((l) => (l.id === lineId ? { ...l, note: clean } : l));
+        commit(set, { ...order, lines });
     },
 
     // Partage d'addition : retire de la commande mère les unités déjà réglées via un
