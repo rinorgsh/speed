@@ -106,6 +106,16 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
         [users],
     );
 
+    // Battement d'une minute : la durée d'occupation avance toute seule. Sans
+    // lui, une table ne passerait « en retard » qu'au prochain changement d'état
+    // — donc parfois jamais, justement sur les tables qu'on veut repérer.
+    const [clock, setClock] = useState(0);
+    useEffect(() => {
+        if (!planMode) return;
+        const id = setInterval(() => setClock((c) => c + 1), 60_000);
+        return () => clearInterval(id);
+    }, [planMode]);
+
     const tableStateOf = useCallback((tableId: number): TableState => {
         const isOccupied = occupied.includes(tableId);
         const summary = summaries[tableId];
@@ -118,7 +128,7 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
             serverColor: serverColorOf(summary?.serverId ?? null),
             minutes: Number.isNaN(openedAt) ? undefined : Math.floor((Date.now() - openedAt) / 60000),
         };
-    }, [occupied, summaries, pending, serverColorOf]);
+    }, [occupied, summaries, pending, serverColorOf, clock]);
 
     // Caisse fermée (ici ou sur un autre appareil) -> retour au choix de profil.
     // Guardé par le focus pour ne pas déclencher sur l'appareil qui affiche le rapport Z.
@@ -166,27 +176,29 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                 ? await transferTable(source, target)
                 : await mergeTables(source, target);
             setMoving(false);
-            if (!res.ok) Alert.alert('Déplacement impossible', res.reason);
+            // Le motif d'échec vient du service en français : c'est justement la
+            // clé de traduction, il se traduit donc tel quel.
+            if (!res.ok) Alert.alert(t('Déplacement impossible'), t(res.reason));
         };
 
         if (targetOccupied) {
             Alert.alert(
-                `Fusionner ${source.label} → ${target.label} ?`,
-                `Les articles de la table ${source.label} rejoignent la table ${target.label}. La table ${source.label} sera libérée.`,
+                t('Fusionner :from → :to ?', { from: source.label, to: target.label }),
+                t('Les articles de la table :from rejoignent la table :to. La table :from sera libérée.', { from: source.label, to: target.label }),
                 [
-                    { text: 'Annuler', style: 'cancel' },
-                    { text: 'Fusionner', onPress: () => void run('merge') },
+                    { text: t('Annuler'), style: 'cancel' },
+                    { text: t('Fusionner'), onPress: () => void run('merge') },
                 ],
             );
             return;
         }
 
         Alert.alert(
-            `Transférer ${source.label} → ${target.label} ?`,
-            `La commande de la table ${source.label} passe sur la table ${target.label}.`,
+            t('Transférer :from → :to ?', { from: source.label, to: target.label }),
+            t('La commande de la table :from passe sur la table :to.', { from: source.label, to: target.label }),
             [
-                { text: 'Annuler', style: 'cancel' },
-                { text: 'Transférer', onPress: () => void run('transfer') },
+                { text: t('Annuler'), style: 'cancel' },
+                { text: t('Transférer'), onPress: () => void run('transfer') },
             ],
         );
     };
@@ -195,40 +207,44 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
     // menu d'actions sur appui long -> parité fonctionnelle avec le plan.
     const tableActions = (table: Table) => {
         if (!occupied.includes(table.id)) return;
-        const targets = tables.filter((t) => t.id !== table.id);
-        Alert.alert(`Table ${table.label}`, 'Que voulez-vous faire ?', [
-            { text: 'Annuler', style: 'cancel' },
+        const targets = tables.filter((tb) => tb.id !== table.id);
+        Alert.alert(t('Table :label', { label: table.label }), t('Que voulez-vous faire ?'), [
+            { text: t('Annuler'), style: 'cancel' },
             {
-                text: 'Déplacer / fusionner',
+                text: t('Déplacer / fusionner'),
                 onPress: () => {
                     if (!targets.length) {
-                        Alert.alert('Aucune autre table', 'Cette salle ne contient qu\'une table.');
+                        Alert.alert(t('Aucune autre table'), t('Cette salle ne contient qu\'une table.'));
                         return;
                     }
                     setMoveSource(table);
                 },
             },
-            { text: 'Libérer la table', style: 'destructive', onPress: () => releaseTable(table) },
+            { text: t('Libérer la table'), style: 'destructive', onPress: () => releaseTable(table) },
         ]);
     };
 
     const releaseTable = (table: Table) => {
         if (!occupied.includes(table.id)) return;
-        Alert.alert(`Libérer la table ${table.label} ?`, 'La/les commande(s) en cours sur cette table seront annulées.', [
-            { text: 'Annuler', style: 'cancel' },
-            {
-                text: 'Libérer',
-                style: 'destructive',
-                onPress: async () => {
-                    useTables.getState().free(table.id);
-                    const current = useCart.getState().order;
-                    if (current?.table_id === table.id) useCart.getState().clear();
-                    await db.releaseTable(table.id);
-                    await flushOutbox(); // pousse l'annulation tout de suite (autoritaire)
-                    void refreshTables();
+        Alert.alert(
+            t('Libérer la table :label ?', { label: table.label }),
+            t('La/les commande(s) en cours sur cette table seront annulées.'),
+            [
+                { text: t('Annuler'), style: 'cancel' },
+                {
+                    text: t('Libérer'),
+                    style: 'destructive',
+                    onPress: async () => {
+                        useTables.getState().free(table.id);
+                        const current = useCart.getState().order;
+                        if (current?.table_id === table.id) useCart.getState().clear();
+                        await db.releaseTable(table.id);
+                        await flushOutbox(); // pousse l'annulation tout de suite (autoritaire)
+                        void refreshTables();
+                    },
                 },
-            },
-        ]);
+            ],
+        );
     };
 
     const closeMenu = () => setMenuOpen(false);

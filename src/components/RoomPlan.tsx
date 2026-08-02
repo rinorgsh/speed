@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Image, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
+import { DoorOpen, MoveVertical, Trees, Wine } from 'lucide-react-native';
 import { theme } from '../theme';
-import type { Room, RoomDecoration, Table } from '../types';
+import { useT } from '../i18n';
+import type { DecorationKind, Room, RoomDecoration, Table } from '../types';
 
 /**
  * Rendu du plan de salle personnalisé (mode « plan »).
@@ -44,6 +46,57 @@ interface Props {
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 3;
 
+/**
+ * Distance entre le bord d'une table et le centre de ses chaises, en unités de
+ * grille. Même valeur que l'éditeur de l'admin : le plan doit se lire pareil des
+ * deux côtés, sinon un plan dessiné serré paraît aéré en salle (et l'inverse).
+ */
+const SEAT_OFFSET = 14;
+const SEAT_SIZE = 12;
+/** Marge du calque des chaises autour de la table (offset + rayon d'une chaise). */
+const SEAT_PAD = SEAT_OFFSET + SEAT_SIZE / 2;
+
+/**
+ * Position des chaises autour d'une table, en unités de grille, repérées depuis
+ * le coin haut-gauche de la table (valeurs négatives = au-dessus / à gauche).
+ */
+function seatDots(table: Table): { x: number; y: number }[] {
+    const dots: { x: number; y: number }[] = [];
+    const n = Math.min(table.seats ?? 0, 20);
+    if (n <= 0) return dots;
+
+    if (table.shape === 'round') {
+        const rx = table.width / 2 + SEAT_OFFSET;
+        const ry = table.height / 2 + SEAT_OFFSET;
+        for (let i = 0; i < n; i++) {
+            const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+            dots.push({
+                x: table.width / 2 + Math.cos(angle) * rx,
+                y: table.height / 2 + Math.sin(angle) * ry,
+            });
+        }
+        return dots;
+    }
+
+    // Formes droites : réparties en haut et en bas, comme dans l'éditeur.
+    const top = Math.ceil(n / 2);
+    const bottom = n - top;
+    for (let i = 0; i < top; i++) dots.push({ x: (table.width * (i + 1)) / (top + 1), y: -SEAT_OFFSET });
+    for (let i = 0; i < bottom; i++) {
+        dots.push({ x: (table.width * (i + 1)) / (bottom + 1), y: table.height + SEAT_OFFSET });
+    }
+
+    return dots;
+}
+
+/** Icône du décor : un mur, un bar et un escalier doivent se distinguer d'un coup d'œil. */
+const DECOR_ICONS: Partial<Record<DecorationKind, typeof Wine>> = {
+    bar: Wine,
+    door: DoorOpen,
+    plant: Trees,
+    stairs: MoveVertical,
+};
+
 export function RoomPlan({
     room,
     tables,
@@ -75,6 +128,9 @@ export function RoomPlan({
     // Table « soulevée » par un appui long, en attente d'être déposée.
     const [dragTableId, setDragTableId] = useState<number | null>(null);
     const [dropTargetId, setDropTargetId] = useState<number | null>(null);
+    // Nommé `tr` et non `t` : les boucles de ce composant utilisent déjà `t`
+    // pour la table courante, un même nom masquerait la traduction.
+    const tr = useT();
 
     // Échelle de base : le plan entier tient dans la zone disponible, SANS
     // manipulation. C'est l'état normal — le zoom n'est qu'une échappatoire.
@@ -222,34 +278,90 @@ export function RoomPlan({
                         <Image
                             source={{ uri: room.background_image_url }}
                             style={[StyleSheet.absoluteFill, { opacity: room.background_opacity / 100 }]}
-                            resizeMode="cover"
+                            // Jamais de recadrage : masquer une partie de la salle
+                            // induirait le serveur en erreur.
+                            resizeMode="contain"
                         />
                     )}
 
                     {/* Décor : purement visuel, non cliquable. */}
-                    {decorations.map((d) => (
-                        <View
-                            key={`d${d.id}`}
-                            pointerEvents="none"
-                            style={[
-                                styles.decor,
-                                d.kind === 'plant' && styles.decorRound,
-                                {
-                                    left: px(d.pos_x),
-                                    top: px(d.pos_y),
-                                    width: px(d.width),
-                                    height: px(d.height),
-                                    transform: [{ rotate: `${d.rotation}deg` }],
-                                },
-                            ]}
-                        >
-                            {d.kind === 'text' && !!d.label && (
-                                <Text style={[styles.decorLabel, { fontSize: Math.max(9, px(d.height) * 0.4) }]} numberOfLines={1}>
-                                    {d.label}
-                                </Text>
-                            )}
-                        </View>
-                    ))}
+                    {decorations.map((d) => {
+                        const Icon = DECOR_ICONS[d.kind];
+                        const iconSize = Math.max(10, Math.min(px(d.width), px(d.height)) * 0.5);
+
+                        return (
+                            <View
+                                key={`d${d.id}`}
+                                pointerEvents="none"
+                                style={[
+                                    styles.decor,
+                                    // Chaque type a sa signature visuelle : un mur plein, une
+                                    // porte en pointillés, une plante ronde. Sans ça tout le
+                                    // décor se ressemble et n'aide plus à se repérer.
+                                    d.kind === 'wall' && styles.decorWall,
+                                    d.kind === 'door' && styles.decorDoor,
+                                    d.kind === 'plant' && styles.decorRound,
+                                    d.kind === 'text' && styles.decorText,
+                                    {
+                                        left: px(d.pos_x),
+                                        top: px(d.pos_y),
+                                        width: px(d.width),
+                                        height: px(d.height),
+                                        transform: [{ rotate: `${d.rotation}deg` }],
+                                    },
+                                ]}
+                            >
+                                {d.kind === 'text' && !!d.label && (
+                                    <Text style={[styles.decorLabel, { fontSize: Math.max(9, px(d.height) * 0.4) }]} numberOfLines={1}>
+                                        {d.label}
+                                    </Text>
+                                )}
+                                {!!Icon && <Icon color={theme.colors.textFaint} size={iconSize} />}
+                            </View>
+                        );
+                    })}
+
+                    {/* Chaises : posées SOUS les tables, sur un calque qui déborde de la
+                        table de SEAT_PAD de chaque côté — un débordement d'enfant est
+                        rogné sur Android, un calque plus grand ne l'est jamais. */}
+                    {tables.map((t) => {
+                        if (t.pos_x == null || t.pos_y == null) return null;
+                        const dots = seatDots(t);
+                        if (!dots.length) return null;
+
+                        return (
+                            <View
+                                key={`s${t.id}`}
+                                pointerEvents="none"
+                                style={{
+                                    position: 'absolute',
+                                    // Inflation symétrique : le centre ne bouge pas, la
+                                    // rotation de la table reste donc valable telle quelle.
+                                    left: px(t.pos_x - SEAT_PAD),
+                                    top: px(t.pos_y - SEAT_PAD),
+                                    width: px(t.width + SEAT_PAD * 2),
+                                    height: px(t.height + SEAT_PAD * 2),
+                                    transform: [{ rotate: `${t.rotation}deg` }],
+                                }}
+                            >
+                                {dots.map((dot, i) => (
+                                    <View
+                                        key={i}
+                                        style={[
+                                            styles.seat,
+                                            {
+                                                left: px(dot.x + SEAT_PAD - SEAT_SIZE / 2),
+                                                top: px(dot.y + SEAT_PAD - SEAT_SIZE / 2),
+                                                width: px(SEAT_SIZE),
+                                                height: px(SEAT_SIZE),
+                                                borderRadius: px(SEAT_SIZE) / 2,
+                                            },
+                                        ]}
+                                    />
+                                ))}
+                            </View>
+                        );
+                    })}
 
                     {tables.map((t) => {
                         const posX = t.pos_x;
@@ -323,17 +435,17 @@ export function RoomPlan({
                 <View style={styles.dragHint} pointerEvents="none">
                     <Text style={styles.dragHintText}>
                         {dropTargetId == null
-                            ? 'Glissez sur une autre table…'
+                            ? tr('Glissez sur une autre table…')
                             : stateOf(dropTargetId).status === 'occupied'
-                                ? `Fusionner avec la table ${tables.find((t) => t.id === dropTargetId)?.label}`
-                                : `Transférer vers la table ${tables.find((t) => t.id === dropTargetId)?.label}`}
+                                ? tr('Fusionner avec la table :label', { label: tables.find((x) => x.id === dropTargetId)?.label ?? '' })
+                                : tr('Transférer vers la table :label', { label: tables.find((x) => x.id === dropTargetId)?.label ?? '' })}
                     </Text>
                 </View>
             )}
 
             {dragTableId == null && transformed && (
                 <Pressable style={styles.recenter} onPress={recenter}>
-                    <Text style={styles.recenterText}>Recentrer</Text>
+                    <Text style={styles.recenterText}>{tr('Recentrer')}</Text>
                 </Pressable>
             )}
         </View>
@@ -355,7 +467,15 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     decorRound: { borderRadius: 999 },
+    // Un mur est une masse pleine : c'est ce qui donne sa forme à la salle.
+    decorWall: { backgroundColor: 'rgba(255,255,255,0.18)', borderColor: 'rgba(255,255,255,0.24)', borderRadius: 2 },
+    // Une porte est une ouverture : trait discontinu, presque pas de remplissage.
+    decorDoor: { backgroundColor: 'transparent', borderStyle: 'dashed', borderColor: 'rgba(255,255,255,0.35)' },
+    // Un simple libellé (« Terrasse ») n'a pas à ressembler à un objet.
+    decorText: { backgroundColor: 'transparent', borderWidth: 0 },
     decorLabel: { color: theme.colors.textFaint, fontWeight: '700' },
+    // Chaise : repère de capacité, volontairement effacé face aux tables.
+    seat: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.16)' },
     table: {
         position: 'absolute',
         alignItems: 'center',

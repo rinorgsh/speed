@@ -68,6 +68,26 @@ export const en: Record<string, string> = {
     'Déplacement impossible': 'Move not possible',
     'Transférer': 'Transfer',
     'Fusionner': 'Merge',
+    'Libérer': 'Free',
+    'Table :label': 'Table :label',
+    'Libérer la table :label ?': 'Free table :label?',
+    'La/les commande(s) en cours sur cette table seront annulées.':
+        'The open order(s) on this table will be cancelled.',
+    'Fusionner avec la table :label': 'Merge with table :label',
+    'Transférer vers la table :label': 'Transfer to table :label',
+    'Fusionner :from → :to ?': 'Merge :from into :to?',
+    'Les articles de la table :from rejoignent la table :to. La table :from sera libérée.':
+        'The items from table :from move to table :to. Table :from will be freed.',
+    'Transférer :from → :to ?': 'Transfer :from to :to?',
+    'La commande de la table :from passe sur la table :to.':
+        'The order on table :from moves to table :to.',
+    'Aucune commande ouverte sur cette table.': 'No open order on this table.',
+    'La table de destination est occupée.': 'The destination table is occupied.',
+    'Même table.': 'Same table.',
+    'Aucune commande ouverte sur la table à fusionner.':
+        'No open order on the table to merge.',
+    'Aucune commande ouverte sur la table de destination.':
+        'No open order on the destination table.',
 
     // --- Commande / panier ---
     'Commande': 'Order',

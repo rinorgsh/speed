@@ -68,6 +68,26 @@ export const nl: Record<string, string> = {
     'Déplacement impossible': 'Verplaatsen niet mogelijk',
     'Transférer': 'Verplaatsen',
     'Fusionner': 'Samenvoegen',
+    'Libérer': 'Vrijgeven',
+    'Table :label': 'Tafel :label',
+    'Libérer la table :label ?': 'Tafel :label vrijgeven?',
+    'La/les commande(s) en cours sur cette table seront annulées.':
+        'De lopende bestelling(en) op deze tafel worden geannuleerd.',
+    'Fusionner avec la table :label': 'Samenvoegen met tafel :label',
+    'Transférer vers la table :label': 'Verplaatsen naar tafel :label',
+    'Fusionner :from → :to ?': ':from samenvoegen met :to?',
+    'Les articles de la table :from rejoignent la table :to. La table :from sera libérée.':
+        'De artikelen van tafel :from gaan naar tafel :to. Tafel :from wordt vrijgegeven.',
+    'Transférer :from → :to ?': ':from verplaatsen naar :to?',
+    'La commande de la table :from passe sur la table :to.':
+        'De bestelling van tafel :from gaat naar tafel :to.',
+    'Aucune commande ouverte sur cette table.': 'Geen lopende bestelling op deze tafel.',
+    'La table de destination est occupée.': 'De doeltafel is bezet.',
+    'Même table.': 'Zelfde tafel.',
+    'Aucune commande ouverte sur la table à fusionner.':
+        'Geen lopende bestelling op de samen te voegen tafel.',
+    'Aucune commande ouverte sur la table de destination.':
+        'Geen lopende bestelling op de doeltafel.',
 
     // --- Commande / panier ---
     'Commande': 'Bestelling',
