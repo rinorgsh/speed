@@ -77,8 +77,12 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
 
     const onProduct = (p: Product) => {
         if (!p.available) return;
-        if (p.option_group_ids.length) setModalProduct(p);
-        else addLine(p, [], 1, null);
+        if (p.option_group_ids.length) { setModalProduct(p); return; }
+        addLine(p, [], 1, null);
+        // Prix libre : le montant est à saisir, et le pavé est dans le panier.
+        // Sans ce renvoi, l'article restait à 0 € sans que rien ne le signale
+        // (la caisse iPad, elle, bascule directement en mode Prix).
+        if (p.is_open_price) navigation.navigate('Cart');
     };
 
     const onConfirmOptions = (options: SelectedOption[], qty: number, note: string | null) => {
@@ -171,7 +175,7 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
                             style={[styles.product, { backgroundColor: p.color ?? theme.colors.surface }, !p.available && styles.unavailable]}
                         >
                             <Text style={styles.productName} numberOfLines={2}>{p.name}</Text>
-                            <Text style={styles.productPrice}>{p.price.toFixed(2)} €</Text>
+                            <Text style={styles.productPrice}>{p.is_open_price ? 'Prix libre' : `${p.price.toFixed(2)} €`}</Text>
                             {qty > 0 && (
                                 <View style={styles.counter}>
                                     <Text style={styles.counterText}>{qty % 1 === 0 ? qty : qty.toFixed(0)}</Text>

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Delete, ChevronLeft, Banknote, CreditCard, Search, X, Send, ShoppingCart, MessageSquare, Sliders } from 'lucide-react-native';
+import { Delete, ChevronLeft, Banknote, CreditCard, Search, X, Send, MessageSquare, Sliders, ReceiptText } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
 import { OptionsModal } from '../components/OptionsModal';
 import { LineActionsSheet } from '../components/LineActionsSheet';
@@ -466,13 +466,17 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
                                     </>
                                 )}
                             </Pressable>
+                            {/* « Payment » et non « Cart » : sur téléphone, le panier est
+                                un écran à ouvrir, ici il est déjà sous les yeux. Ce bouton
+                                mène à l'encaissement — même libellé que sur téléphone,
+                                pour la même destination. */}
                             <Pressable
                                 onPress={() => navigation.navigate('Payment')}
                                 disabled={!lines.length || processing}
                                 style={[styles.actionBtn, styles.cartBtn, (!lines.length || processing) && styles.btnDisabled]}
                             >
-                                <ShoppingCart color="#fff" size={20} />
-                                <Text style={styles.actionText}>Cart</Text>
+                                <CreditCard color="#fff" size={20} />
+                                <Text style={styles.actionText}>Payment</Text>
                                 <View style={styles.cartInfo}>
                                     <Text style={styles.cartInfoText}>{lines.length} · {euro(total)}</Text>
                                 </View>
@@ -485,6 +489,18 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
                             </Pressable>
                             <Pressable onPress={() => pay('card')} disabled={!lines.length || processing} style={[styles.pay, styles.payCard, (!lines.length || processing) && styles.payDim]}>
                                 <CreditCard color={theme.colors.text} size={20} /><Text style={styles.payCardText}>{t('Carte')}</Text>
+                            </Pressable>
+                            {/* Encaissement détaillé : remise, partage d'addition, impression
+                                de l'addition, montant partiel. Sans cette porte, le comptoir
+                                iPad était le SEUL endroit d'où ces fonctions étaient
+                                inatteignables — le pay & go reste à un tap juste à côté. */}
+                            <Pressable
+                                onPress={() => navigation.navigate('Payment')}
+                                disabled={!lines.length || processing}
+                                style={[styles.payMore, (!lines.length || processing) && styles.payDim]}
+                            >
+                                <ReceiptText color={theme.colors.text} size={20} />
+                                <Text style={styles.payMoreText} numberOfLines={1}>{t('Détail')}</Text>
                             </Pressable>
                         </View>
                     )}
@@ -611,6 +627,13 @@ const styles = StyleSheet.create({
     lineToolTextOn: { color: theme.colors.warning },
 
     pays: { flexDirection: 'row', gap: theme.spacing(2.5), paddingVertical: theme.spacing(3) },
+    // Plus étroit que Espèces/Carte : c'est une porte de sortie, pas le geste courant.
+    payMore: {
+        width: 96, height: 58, alignItems: 'center', justifyContent: 'center', gap: 2,
+        borderRadius: theme.radius.md, backgroundColor: theme.colors.surface,
+        borderWidth: 1, borderColor: theme.colors.border,
+    },
+    payMoreText: { color: theme.colors.text, fontWeight: '700', fontSize: 12 },
     pay: { flex: 1, height: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing(2), borderRadius: theme.radius.md },
     payCash: { backgroundColor: theme.colors.success },
     payCashText: { color: '#06281b', fontWeight: '800', fontSize: 16 },

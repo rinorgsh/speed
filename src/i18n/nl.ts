@@ -114,6 +114,8 @@ export const nl: Record<string, string> = {
     'Rechercher un produit': 'Zoek een product',
     'Couverts': 'Couverts',
 
+    // Encaissement détaillé (remise, partage, addition) depuis le comptoir iPad.
+    'Détail': 'Detail',
     'Addition': 'Rekening',
     // Libellés courts des pastilles d'actions de l'écran de paiement.
     'Partager': 'Splitsen',

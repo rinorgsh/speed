@@ -113,6 +113,8 @@ export const en: Record<string, string> = {
     'Rechercher un produit': 'Search a product',
     'Couverts': 'Covers',
 
+    // Encaissement détaillé (remise, partage, addition) depuis le comptoir iPad.
+    'Détail': 'Details',
     'Addition': 'Bill',
     // Libellés courts des pastilles d'actions de l'écran de paiement.
     'Partager': 'Split',

@@ -10,6 +10,7 @@ import { useCart } from '../store/useCart';
 import { useT } from '../i18n';
 import { printKitchen } from '../services/printing';
 import { flushOutbox } from '../services/sync';
+import type { ServiceType } from '../types';
 import type { RootStackParamList } from '../navigation/types';
 
 type Mode = 'qty' | 'price';
@@ -19,6 +20,7 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
     const order = useCart((s) => s.order);
     const setLineQty = useCart((s) => s.setLineQty);
     const setLinePrice = useCart((s) => s.setLinePrice);
+    const setServiceType = useCart((s) => s.setServiceType);
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [mode, setMode] = useState<Mode>('qty');
@@ -155,6 +157,22 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
                 {!lines.length && <Text style={styles.empty}>Panier vide.</Text>}
             </ScrollView>
 
+            {/* Sur place / Emporter. Absent du parcours téléphone jusqu'ici : la
+                commande restait donc toujours « sur place » et le taux de TVA à
+                emporter du produit ne s'appliquait jamais. */}
+            <View style={styles.svcRow}>
+                {(['dine_in', 'takeaway'] as ServiceType[]).map((st) => {
+                    const on = order.service_type === st;
+                    return (
+                        <Pressable key={st} onPress={() => setServiceType(st)} style={[styles.svcBtn, on && styles.svcBtnOn]}>
+                            <Text style={[styles.svcText, on && styles.svcTextOn]}>
+                                {st === 'dine_in' ? t('Sur place') : t('Emporter')}
+                            </Text>
+                        </Pressable>
+                    );
+                })}
+            </View>
+
             {/* Totaux */}
             <View style={styles.totals}>
                 <View style={styles.totalRow}><Text style={styles.taxLabel}>Taxes</Text><Text style={styles.taxValue}>{order.tax_total.toFixed(2)} €</Text></View>
@@ -243,6 +261,17 @@ const styles = StyleSheet.create({
     lineNote: { color: theme.colors.warning, fontSize: 12, fontStyle: 'italic', flex: 1 },
     lineTotal: { color: theme.colors.text, fontWeight: '800', fontSize: 16 },
     empty: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing(8) },
+
+    // Sur place / Emporter : segmenté compact, au-dessus des totaux qu'il fait varier.
+    svcRow: {
+        flexDirection: 'row', alignSelf: 'center', marginTop: theme.spacing(2),
+        backgroundColor: theme.colors.surface, borderRadius: theme.radius.pill,
+        borderWidth: 1, borderColor: theme.colors.border, padding: 3,
+    },
+    svcBtn: { paddingHorizontal: theme.spacing(5), paddingVertical: theme.spacing(2), borderRadius: theme.radius.pill },
+    svcBtnOn: { backgroundColor: theme.colors.primary },
+    svcText: { color: theme.colors.textMuted, fontWeight: '700', fontSize: 13 },
+    svcTextOn: { color: theme.colors.onPrimary },
 
     totals: { paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(3), borderTopWidth: 1, borderColor: theme.colors.border },
     totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
