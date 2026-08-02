@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Delete, ChevronLeft, Banknote, CreditCard, Search, X, Send, ShoppingCart } from 'lucide-react-native';
+import { Delete, ChevronLeft, Banknote, CreditCard, Search, X, Send, ShoppingCart, MessageSquare, Sliders } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
 import { OptionsModal } from '../components/OptionsModal';
+import { LineActionsSheet } from '../components/LineActionsSheet';
+import { LineNoteModal } from '../components/LineNoteModal';
 import { theme } from '../theme';
 import { useConfig } from '../store/useConfig';
 import { useCart } from '../store/useCart';
@@ -58,6 +60,10 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
     const [modalProduct, setModalProduct] = useState<Product | null>(null);
     const [processing, setProcessing] = useState(false);
     const [flash, setFlash] = useState<string | null>(null);
+    // Note et actions de ligne : mêmes possibilités qu'au panier du téléphone,
+    // dans la disposition de la caisse.
+    const [noteOpen, setNoteOpen] = useState(false);
+    const [actionsOpen, setActionsOpen] = useState(false);
 
     // Catégories imbriquées (Food / Drink -> sous-catégories), comme le POS.
     const roots = useMemo(() => categories.filter((c) => !c.parent_id), [categories]);
@@ -367,7 +373,7 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.lineName} numberOfLines={1}>{l.name_snapshot}</Text>
                                         <Text style={[styles.lineMeta, isSel && mode === 'price' && styles.metaOn]}>{euro(l.unit_price_snapshot)}</Text>
-                                        {/* Commentaire de la ligne : visible partout où le ticket l'est. */}
+                                        {/* Note de la ligne : visible partout où le ticket l'est. */}
                                         {!!l.note && <Text style={styles.lineNote} numberOfLines={2}>{l.note}</Text>}
                                     </View>
                                     <Text style={styles.lineTotal}>{euro(l.line_total)}</Text>
@@ -411,6 +417,30 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
                                 })}
                             </View>
                         ))}
+                    </View>
+
+                    {/* Note et actions de la ligne sélectionnée. Placées juste sous
+                        le pavé, au contact du ticket : elles portent sur la LIGNE,
+                        pas sur la commande, contrairement aux boutons du bas. */}
+                    <View style={styles.lineTools}>
+                        <Pressable
+                            onPress={() => selected && setNoteOpen(true)}
+                            disabled={!selected}
+                            style={[styles.lineTool, !selected && styles.lineToolDim, !!selected?.note && styles.lineToolOn]}
+                        >
+                            <MessageSquare color={selected?.note ? theme.colors.warning : theme.colors.text} size={18} />
+                            <Text style={[styles.lineToolText, !!selected?.note && styles.lineToolTextOn]} numberOfLines={1}>
+                                {t('Note')}
+                            </Text>
+                        </Pressable>
+                        <Pressable
+                            onPress={() => selected && setActionsOpen(true)}
+                            disabled={!selected}
+                            style={[styles.lineTool, !selected && styles.lineToolDim]}
+                        >
+                            <Sliders color={theme.colors.text} size={18} />
+                            <Text style={styles.lineToolText} numberOfLines={1}>Actions</Text>
+                        </Pressable>
                     </View>
 
                     {/* Actions du bas : une table s'envoie puis s'encaisse plus tard,
@@ -466,6 +496,8 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
             )}
 
             <OptionsModal product={modalProduct} visible={!!modalProduct} onClose={() => setModalProduct(null)} onConfirm={onConfirmOptions} />
+            <LineNoteModal visible={noteOpen} line={selected} onClose={() => setNoteOpen(false)} />
+            <LineActionsSheet visible={actionsOpen} line={selected} onClose={() => setActionsOpen(false)} />
         </Screen>
     );
 }
@@ -562,6 +594,21 @@ const styles = StyleSheet.create({
     modeText: { color: theme.colors.textMuted, fontSize: 14, fontWeight: '700' },
     modeTextOn: { color: theme.colors.onPrimary },
     backCell: { backgroundColor: theme.colors.dangerSoft, borderWidth: 1, borderColor: theme.colors.danger },
+
+    // Outils de LIGNE (note, actions) : volontairement plus discrets que les
+    // boutons d'encaissement, pour qu'on ne les confonde pas.
+    lineTools: { flexDirection: 'row', gap: theme.spacing(2), paddingTop: theme.spacing(3) },
+    lineTool: {
+        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        gap: theme.spacing(2), height: 46, borderRadius: theme.radius.md,
+        backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border,
+        paddingHorizontal: theme.spacing(2),
+    },
+    lineToolDim: { opacity: 0.45 },
+    // Ligne porteuse d'une note : signalé sans avoir à ouvrir.
+    lineToolOn: { borderColor: theme.colors.warning },
+    lineToolText: { color: theme.colors.text, fontWeight: '700', fontSize: 14, flexShrink: 1 },
+    lineToolTextOn: { color: theme.colors.warning },
 
     pays: { flexDirection: 'row', gap: theme.spacing(2.5), paddingVertical: theme.spacing(3) },
     pay: { flex: 1, height: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing(2), borderRadius: theme.radius.md },

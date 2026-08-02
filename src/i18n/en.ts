@@ -90,8 +90,6 @@ export const en: Record<string, string> = {
         'No open order on the destination table.',
 
     // --- Actions sur une ligne du panier ---
-    'Commentaire': 'Comment',
-    'Modifier le commentaire': 'Edit comment',
     "Retirer l'article": 'Remove item',
     'Retirer': 'Remove',
     'Enregistrer': 'Save',

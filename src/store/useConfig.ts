@@ -4,7 +4,7 @@ import { fetchBootstrap } from '../api/client';
 import { NETWORK } from '../config';
 import { useAuth } from './useAuth';
 import { useLocale } from '../i18n';
-import type { Category, OptionGroup, PrepStation, Printer, Product, RealtimeConfig, Room, Table, Tax, User } from '../types';
+import type { Category, OptionGroup, PrepStation, Printer, Product, QuickNote, RealtimeConfig, Room, Table, Tax, User } from '../types';
 
 /**
  * Config en cache (offline-first). loadFromCache lit le SQLite local ;
@@ -19,6 +19,8 @@ interface ConfigState {
     taxes: Tax[];
     printers: Printer[];
     prepStations: PrepStation[];
+    /** Suggestions proposées à la saisie d'une note d'article. */
+    quickNotes: QuickNote[];
     categories: Category[];
     products: Product[];
     optionGroups: OptionGroup[];
@@ -59,6 +61,7 @@ export const useConfig = create<ConfigState>((set, get) => ({
     taxes: [],
     printers: [],
     prepStations: [],
+    quickNotes: [],
     categories: [],
     products: [],
     optionGroups: [],
@@ -66,7 +69,7 @@ export const useConfig = create<ConfigState>((set, get) => ({
     lastSyncError: null,
 
     loadFromCache: async () => {
-        const [settings, users, rooms, tables, taxes, printers, prepStations, categories, products, optionGroups, realtimeConfig] = await Promise.all([
+        const [settings, users, rooms, tables, taxes, printers, prepStations, quickNotes, categories, products, optionGroups, realtimeConfig] = await Promise.all([
             db.getSettings(),
             db.getUsers(),
             db.getRooms(),
@@ -74,12 +77,13 @@ export const useConfig = create<ConfigState>((set, get) => ({
             db.getTaxes(),
             db.getPrinters(),
             db.getPrepStations(),
+            db.getQuickNotes(),
             db.getCategories(),
             db.getProducts(),
             db.getOptionGroups(),
             db.getRealtimeConfig(),
         ]);
-        set({ settings, users, rooms, tables, taxes, printers, prepStations, categories, products, optionGroups, realtimeConfig, ready: true });
+        set({ settings, users, rooms, tables, taxes, printers, prepStations, quickNotes, categories, products, optionGroups, realtimeConfig, ready: true });
         // Langue de l'établissement : appliquée tant que l'appareil n'a pas
         // fait de choix explicite (cf. useLocale.overridden).
         useLocale.getState().applyEstablishment(settings.default_locale);

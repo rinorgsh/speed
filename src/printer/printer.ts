@@ -201,8 +201,8 @@ export function buildBill(
         for (const opt of l.options_snapshot) {
             b.line(`   + ${opt.name}${opt.price_delta ? ` (${euro(opt.price_delta)})` : ''}`);
         }
-        // Commentaire sous le produit : le client doit retrouver sur l'addition
-        // ce qu'il a demandé à table.
+        // Note sous le produit : le client doit retrouver sur l'addition ce
+        // qu'il a demandé à table.
         if (l.note) b.line(`   ** ${l.note}`);
     }
     b.rule();

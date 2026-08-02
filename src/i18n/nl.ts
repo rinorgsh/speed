@@ -90,8 +90,6 @@ export const nl: Record<string, string> = {
         'Geen lopende bestelling op de doeltafel.',
 
     // --- Actions sur une ligne du panier ---
-    'Commentaire': 'Opmerking',
-    'Modifier le commentaire': 'Opmerking wijzigen',
     "Retirer l'article": 'Artikel verwijderen',
     'Retirer': 'Verwijderen',
     'Enregistrer': 'Opslaan',
@@ -111,7 +109,8 @@ export const nl: Record<string, string> = {
     'Quantité': 'Aantal',
     'Prix': 'Prijs',
     'Divers': 'Diversen',
-    'Note': 'Notitie',
+    // Remarque portée par une ligne de commande (« sans oignon »).
+    'Note': 'Opmerking',
     'Rechercher un produit': 'Zoek een product',
     'Couverts': 'Couverts',
 

@@ -112,6 +112,17 @@ export interface PrepStation {
     sort_order: number;
 }
 
+/**
+ * Note rapide : demande fréquente de la clientèle (« sans oignon »), réglée
+ * dans l'admin et proposée en un tap au moment d'écrire la note d'un article.
+ * Simple aide à la saisie — la note stockée sur la ligne reste du texte libre.
+ */
+export interface QuickNote {
+    id: number;
+    label: string;
+    sort_order: number;
+}
+
 export interface Product {
     id: number;
     category_id: number;
@@ -180,6 +191,7 @@ export interface BootstrapPayload {
     taxes: Tax[];
     printers: Printer[];
     prep_stations?: PrepStation[];
+    quick_notes?: QuickNote[];
     categories: Category[];
     products: Product[];
     option_groups: OptionGroup[];

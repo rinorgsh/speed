@@ -243,7 +243,7 @@ export const useCart = create<CartState>((set, get) => ({
     },
 
     /**
-     * Commentaire libre sur une ligne (« sans oignon », « cuisson bleue »).
+     * Note libre sur une ligne (« sans oignon », « cuisson bleue »).
      *
      * Modifiable à tout moment depuis le panier, y compris sur une ligne déjà
      * partie en cuisine : le prix ne bouge pas, donc rien à recalculer. La

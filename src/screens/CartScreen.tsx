@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Delete, Send, CreditCard, User, Sliders, MessageSquare, Trash2 } from 'lucide-react-native';
+import { Delete, Send, CreditCard, Sliders, MessageSquare } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
+import { LineActionsSheet } from '../components/LineActionsSheet';
+import { LineNoteModal } from '../components/LineNoteModal';
 import { theme } from '../theme';
 import { useCart } from '../store/useCart';
 import { useT } from '../i18n';
@@ -17,17 +19,15 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
     const order = useCart((s) => s.order);
     const setLineQty = useCart((s) => s.setLineQty);
     const setLinePrice = useCart((s) => s.setLinePrice);
-    const setLineNote = useCart((s) => s.setLineNote);
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [mode, setMode] = useState<Mode>('qty');
     const [typing, setTyping] = useState(false);
     const [buffer, setBuffer] = useState('');
     const [sending, setSending] = useState(false);
-    // Menu d'actions sur la ligne sélectionnée, et saisie du commentaire.
+    // Menu d'actions sur la ligne sélectionnée, et saisie de la note.
     const [actionsOpen, setActionsOpen] = useState(false);
     const [noteOpen, setNoteOpen] = useState(false);
-    const [noteDraft, setNoteDraft] = useState('');
     const t = useT();
 
     const lines = order ? order.lines.filter((l) => !l.voided && l.qty > 0) : [];
@@ -115,34 +115,7 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
 
     const openNote = () => {
         if (!selected) return;
-        setNoteDraft(selected.note ?? '');
-        setActionsOpen(false);
         setNoteOpen(true);
-    };
-
-    const saveNote = () => {
-        if (selected) setLineNote(selected.id, noteDraft);
-        setNoteOpen(false);
-    };
-
-    const removeLine = () => {
-        if (!selected) return;
-        const line = selected;
-        setActionsOpen(false);
-        // Un article déjà parti en cuisine ne disparaît pas en silence : le
-        // retirer déclenche un ticket d'annulation au prochain envoi.
-        if (line.sent_qty > 0) {
-            Alert.alert(
-                t('Retirer un article déjà envoyé ?'),
-                t('La cuisine a déjà reçu cet article. Le retrait lui sera signalé au prochain envoi.'),
-                [
-                    { text: t('Annuler'), style: 'cancel' },
-                    { text: t("Retirer l'article"), style: 'destructive', onPress: () => setLineQty(line.id, 0) },
-                ],
-            );
-            return;
-        }
-        setLineQty(line.id, 0);
     };
 
     const KEYS: { k: string; label?: string; mode?: Mode; back?: boolean }[][] = [
@@ -167,7 +140,7 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
                                 {l.options_snapshot.map((o) => (
                                     <Text key={o.option_id} style={styles.lineOpt}>+ {o.name}</Text>
                                 ))}
-                                {/* Commentaire : sous le produit, comme sur le ticket. */}
+                                {/* Note : sous le produit, comme sur le ticket. */}
                                 {!!l.note && (
                                     <View style={styles.noteRow}>
                                         <MessageSquare color={theme.colors.warning} size={12} />
@@ -219,94 +192,22 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
                 ))}
             </View>
 
-            {/* Customer / Actions */}
+            {/* Note / Actions. La note est là en accès direct : c'est le geste le
+                plus fréquent sur une ligne, il ne mérite pas un détour par un menu. */}
             <View style={styles.secondaryRow}>
-                <Pressable style={styles.secondaryBtn} onPress={() => Alert.alert('Client', 'Gestion client — bientôt.')}>
-                    <User color={theme.colors.text} size={18} />
-                    <Text style={styles.secondaryText}>Client</Text>
+                <Pressable
+                    style={[styles.secondaryBtn, !selected && styles.secondaryDim, !!selected?.note && styles.secondaryOn]}
+                    onPress={openNote}
+                    disabled={!selected}
+                >
+                    <MessageSquare color={selected?.note ? theme.colors.warning : theme.colors.text} size={18} />
+                    <Text style={[styles.secondaryText, !!selected?.note && styles.secondaryTextOn]}>{t('Note')}</Text>
                 </Pressable>
                 <Pressable style={[styles.secondaryBtn, !selected && styles.secondaryDim]} onPress={openActions} disabled={!selected}>
                     <Sliders color={theme.colors.text} size={18} />
                     <Text style={styles.secondaryText}>Actions</Text>
                 </Pressable>
             </View>
-
-            {/* Liste d'actions sur la ligne sélectionnée. Volontairement une liste
-                et non une alerte : les actions vont s'ajouter avec le temps, et un
-                Alert plafonne à trois boutons lisibles. */}
-            <Modal visible={actionsOpen} transparent animationType="fade" onRequestClose={() => setActionsOpen(false)}>
-                <Pressable style={styles.backdrop} onPress={() => setActionsOpen(false)}>
-                    <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-                        <Text style={styles.sheetTitle} numberOfLines={1}>{selected?.name_snapshot}</Text>
-
-                        <Pressable style={styles.actionRow} onPress={openNote}>
-                            <MessageSquare color={theme.colors.text} size={20} />
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.actionLabel}>
-                                    {selected?.note ? t('Modifier le commentaire') : t('Commentaire')}
-                                </Text>
-                                {!!selected?.note && (
-                                    <Text style={styles.actionHint} numberOfLines={1}>{selected.note}</Text>
-                                )}
-                            </View>
-                        </Pressable>
-
-                        <Pressable style={styles.actionRow} onPress={removeLine}>
-                            <Trash2 color={theme.colors.danger} size={20} />
-                            <Text style={[styles.actionLabel, { color: theme.colors.danger }]}>{t("Retirer l'article")}</Text>
-                        </Pressable>
-
-                        <Pressable style={styles.sheetCancel} onPress={() => setActionsOpen(false)}>
-                            <Text style={styles.sheetCancelText}>{t('Annuler')}</Text>
-                        </Pressable>
-                    </Pressable>
-                </Pressable>
-            </Modal>
-
-            {/* Saisie du commentaire. */}
-            <Modal visible={noteOpen} transparent animationType="fade" onRequestClose={() => setNoteOpen(false)}>
-                <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                    <Pressable style={styles.backdrop} onPress={() => setNoteOpen(false)}>
-                        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-                            <Text style={styles.sheetTitle} numberOfLines={1}>{selected?.name_snapshot}</Text>
-
-                            {/* Une ligne déjà partie en cuisine a son ticket imprimé : le
-                                commentaire ajouté après coup n'y figurera pas. */}
-                            {!!selected && selected.sent_qty > 0 && (
-                                <Text style={styles.noteWarning}>
-                                    {t('Déjà envoyé en cuisine : prévenez-la de vive voix, le ticket est imprimé.')}
-                                </Text>
-                            )}
-
-                            <TextInput
-                                value={noteDraft}
-                                onChangeText={setNoteDraft}
-                                placeholder={t('ex. sans oignon')}
-                                placeholderTextColor={theme.colors.textMuted}
-                                style={styles.noteInput}
-                                autoFocus
-                                multiline
-                                maxLength={120}
-                                onSubmitEditing={saveNote}
-                            />
-
-                            <View style={styles.noteButtons}>
-                                {!!selected?.note && (
-                                    <Pressable
-                                        style={[styles.noteBtn, styles.noteBtnGhost]}
-                                        onPress={() => { if (selected) setLineNote(selected.id, null); setNoteOpen(false); }}
-                                    >
-                                        <Text style={styles.noteBtnGhostText}>{t('Retirer')}</Text>
-                                    </Pressable>
-                                )}
-                                <Pressable style={[styles.noteBtn, styles.noteBtnPrimary]} onPress={saveNote}>
-                                    <Text style={styles.noteBtnPrimaryText}>{t('Enregistrer')}</Text>
-                                </Pressable>
-                            </View>
-                        </Pressable>
-                    </Pressable>
-                </KeyboardAvoidingView>
-            </Modal>
 
             {/* Bas : Order + Payment */}
             <View style={styles.bottomBar}>
@@ -321,6 +222,9 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
                     <Text style={styles.bottomText}>Payment</Text>
                 </Pressable>
             </View>
+
+            <LineActionsSheet visible={actionsOpen} line={selected} onClose={() => setActionsOpen(false)} />
+            <LineNoteModal visible={noteOpen} line={selected} onClose={() => setNoteOpen(false)} />
         </Screen>
     );
 }
@@ -363,37 +267,9 @@ const styles = StyleSheet.create({
     secondaryBtn: { flex: 1, height: 46, flexDirection: 'row', gap: theme.spacing(2), alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface, borderRadius: theme.radius.sm, borderWidth: 1, borderColor: theme.colors.border },
     secondaryText: { color: theme.colors.text, fontWeight: '600' },
     secondaryDim: { opacity: 0.45 },
-
-    // Feuille d'actions / commentaire
-    backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
-    sheet: {
-        backgroundColor: theme.colors.surfaceAlt,
-        borderTopLeftRadius: theme.radius.lg, borderTopRightRadius: theme.radius.lg,
-        padding: theme.spacing(4), paddingBottom: theme.spacing(6),
-        borderTopWidth: 1, borderColor: theme.colors.border,
-    },
-    sheetTitle: { color: theme.colors.text, fontSize: 18, fontWeight: '800', marginBottom: theme.spacing(3) },
-    actionRow: {
-        flexDirection: 'row', alignItems: 'center', gap: theme.spacing(3),
-        paddingVertical: theme.spacing(3.5), borderTopWidth: 1, borderColor: theme.colors.border,
-    },
-    actionLabel: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
-    actionHint: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
-    sheetCancel: { marginTop: theme.spacing(3), height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.md, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
-    sheetCancelText: { color: theme.colors.textMuted, fontWeight: '700', fontSize: 15 },
-    noteWarning: { color: theme.colors.warning, fontSize: 13, marginBottom: theme.spacing(2.5) },
-    noteInput: {
-        backgroundColor: theme.colors.surface, borderRadius: theme.radius.md,
-        borderWidth: 1, borderColor: theme.colors.border, color: theme.colors.text,
-        paddingHorizontal: theme.spacing(3.5), paddingTop: theme.spacing(3), paddingBottom: theme.spacing(3),
-        minHeight: 84, fontSize: 16, textAlignVertical: 'top',
-    },
-    noteButtons: { flexDirection: 'row', gap: theme.spacing(3), marginTop: theme.spacing(3.5) },
-    noteBtn: { flex: 1, height: 50, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.md },
-    noteBtnGhost: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
-    noteBtnGhostText: { color: theme.colors.danger, fontWeight: '700', fontSize: 15 },
-    noteBtnPrimary: { backgroundColor: theme.colors.primary },
-    noteBtnPrimaryText: { color: theme.colors.onPrimary, fontWeight: '800', fontSize: 15 },
+    // Ligne porteuse d'une note : le bouton le signale sans qu'on l'ouvre.
+    secondaryOn: { borderColor: theme.colors.warning },
+    secondaryTextOn: { color: theme.colors.warning },
 
     bottomBar: { flexDirection: 'row', gap: theme.spacing(3), padding: theme.spacing(3) },
     orderBtn: { flex: 1, height: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.warning, borderRadius: theme.radius.md },

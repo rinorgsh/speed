@@ -7,6 +7,7 @@ import type {
     OrderLine,
     PosSession,
     PrepStation,
+    QuickNote,
     Printer,
     Product,
     RealtimeConfig,
@@ -65,6 +66,7 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
     CREATE TABLE IF NOT EXISTS prep_stations (
       id INTEGER PRIMARY KEY, name TEXT, mode TEXT, printer_id INTEGER, fallback_printer_id INTEGER, sort_order INTEGER
     );
+    CREATE TABLE IF NOT EXISTS quick_notes (id INTEGER PRIMARY KEY, label TEXT, sort_order INTEGER);
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY, category_id INTEGER, name TEXT, price REAL, tax_id INTEGER, tax_takeaway_id INTEGER,
       price_includes_tax INTEGER, color TEXT, available INTEGER, is_open_price INTEGER, sort_order INTEGER,
@@ -155,7 +157,7 @@ export async function importBootstrap(payload: BootstrapPayload): Promise<void> 
     // vide. Toutes les requêtes passent par `txn` pour rester dans la transaction.
     await d.withExclusiveTransactionAsync(async (txn) => {
         // On vide puis ré-insère la config (les commandes locales ne sont pas touchées).
-        for (const t of ['cache_settings', 'users', 'taxes', 'printers', 'rooms', 'tables', 'room_decorations', 'prep_stations', 'categories', 'products', 'option_groups', 'pos_session']) {
+        for (const t of ['cache_settings', 'users', 'taxes', 'printers', 'rooms', 'tables', 'room_decorations', 'prep_stations', 'quick_notes', 'categories', 'products', 'option_groups', 'pos_session']) {
             await txn.execAsync(`DELETE FROM ${t};`);
         }
 
@@ -197,6 +199,11 @@ export async function importBootstrap(payload: BootstrapPayload): Promise<void> 
             await txn.runAsync(
                 'INSERT INTO prep_stations (id, name, mode, printer_id, fallback_printer_id, sort_order) VALUES (?,?,?,?,?,?)',
                 st.id, st.name, st.mode, st.printer_id, st.fallback_printer_id, st.sort_order);
+        }
+        // Notes rapides : suggestions de saisie, mises en cache comme le reste
+        // pour rester proposées hors-ligne.
+        for (const qn of payload.quick_notes ?? []) {
+            await txn.runAsync('INSERT INTO quick_notes (id, label, sort_order) VALUES (?,?,?)', qn.id, qn.label, qn.sort_order);
         }
         for (const c of payload.categories) {
             await txn.runAsync('INSERT INTO categories (id, parent_id, name, color, sort_order, printer_id, station_id) VALUES (?,?,?,?,?,?,?)',
@@ -276,6 +283,10 @@ export async function getAllTables(): Promise<Table[]> {
 
 export async function getPrepStations(): Promise<PrepStation[]> {
     return getDb().getAllAsync<PrepStation>('SELECT * FROM prep_stations ORDER BY sort_order');
+}
+
+export async function getQuickNotes(): Promise<QuickNote[]> {
+    return getDb().getAllAsync<QuickNote>('SELECT * FROM quick_notes ORDER BY sort_order, id');
 }
 
 export async function getCategories(): Promise<Category[]> {

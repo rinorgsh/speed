@@ -105,6 +105,12 @@ export function connectRealtime(config: RealtimeConfig | null, apiUrl: string, p
             console.log('[realtime] ⬇ RoomPlanUpdated');
             void useConfig.getState().syncFromServer();
         });
+        // Notes rapides modifiées dans l'admin : même traitement, la liste est
+        // trop petite pour mériter un payload dédié.
+        channel.bind('QuickNotesUpdated', () => {
+            console.log('[realtime] ⬇ QuickNotesUpdated');
+            void useConfig.getState().syncFromServer();
+        });
         channel.bind('TableStatusChanged', () => useRealtime.getState().bumpTables());
         channel.bind('OrderUpdated', (o: Order) => {
             console.log('[realtime] ⬇ OrderUpdated', o?.id, o?.status);
