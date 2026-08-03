@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: http: https:; connect-src *" />
+    <title>Speed</title>
+    <style>
+        /* La caisse occupe toute la fenêtre : aucune marge, aucun défilement
+           du document lui-même (les écrans gèrent leur propre défilement). */
+        html, body, #root {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #0d0d0f;
+        }
+        /* Indispensable : toute l'application est bâtie sur des conteneurs
+           `flex: 1`. Sans conteneur flex à la racine, ils ne reçoivent aucune
+           hauteur à répartir et la chaîne entière s'effondre à zéro — l'écran
+           s'affiche alors décalé hors du cadre. */
+        #root {
+            display: flex;
+            flex-direction: column;
+        }
+        body {
+            font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+            /* Une caisse n'est pas un document : on désactive la sélection de
+               texte, qui n'apporte rien et gêne les appuis longs. */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        input, textarea { user-select: text; -webkit-user-select: text; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script src="./bundle.js"></script>
+</body>
+</html>

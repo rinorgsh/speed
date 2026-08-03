@@ -1,0 +1,75 @@
+{
+  "name": "speed-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Speed — caisse HORECA, application de bureau (Windows / macOS)",
+  "main": "main.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "start": "npm run build && electron .",
+    "screenshot": "npm run build && electron . --screenshot ./capture.png",
+    "mock-printer": "node scripts/mock-printer.js",
+    "selftest": "node scripts/selftest.js",
+    "postinstall": "electron-builder install-app-deps",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "release:win": "npm run build && electron-builder --win --publish always"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.0",
+    "lucide-react": "^0.468.0",
+    "react-dom": "19.2.3",
+    "react-native-web": "^0.19.13"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "electron-updater": "^6.8.9"
+  },
+  "build": {
+    "appId": "com.rinorgsh.speed",
+    "productName": "Speed",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "lib/**/*",
+      "renderer/index.html",
+      "renderer/bundle.js"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.business",
+      "identity": null
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Speed"
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://pos-horeca.on-forge.com/desktop"
+      }
+    ]
+  }
+}

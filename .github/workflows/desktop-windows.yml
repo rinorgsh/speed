@@ -1,0 +1,49 @@
+# Fabrique l'installateur Windows de Speed.
+#
+# Un `.exe` ne peut pas être produit depuis un Mac sans Wine : cette CI tourne
+# donc sur une machine Windows fournie par GitHub. Le code compilé est le même
+# que celui du Mac — seul l'emballage diffère.
+#
+# Déclenchement manuel (onglet Actions → « Run workflow »), ou automatique sur
+# une étiquette de version `desktop-v1.2.3`.
+name: Application de bureau — Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'desktop-v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Les dépendances de la RACINE sont indispensables : le bundle du bureau
+      # embarque `src/`, qui importe react, zustand, axios, buffer…
+      - name: Dépendances de l'application
+        run: npm ci --legacy-peer-deps
+
+      - name: Dépendances du bureau
+        working-directory: desktop
+        run: npm ci --legacy-peer-deps
+
+      - name: Construire l'installateur
+        working-directory: desktop
+        run: npm run dist:win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: speed-windows
+          # `latest.yml` est ce que l'application interroge pour savoir
+          # qu'une nouvelle version existe : il doit être publié avec le .exe.
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.exe.blockmap
+            desktop/dist/latest.yml

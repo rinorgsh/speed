@@ -1,0 +1,5 @@
+node_modules/
+# Bundle produit par esbuild (regénéré par `npm run build`).
+renderer/bundle.js
+dist/
+capture.png
