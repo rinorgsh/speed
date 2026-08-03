@@ -318,9 +318,18 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                 texte, défilement horizontal -> les noms complets sont toujours lisibles
                 (utile pour Event qui a beaucoup de salles). */}
             {!floorView && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs} contentContainerStyle={styles.tabsContent}>
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={[styles.tabs, planMode && styles.tabsTight]}
+                    contentContainerStyle={styles.tabsContent}
+                >
                     {rooms.map((r) => (
-                        <Pressable key={r.id} onPress={() => setRoomId(r.id)} style={[styles.tab, roomId === r.id && styles.tabActive]}>
+                        <Pressable
+                            key={r.id}
+                            onPress={() => setRoomId(r.id)}
+                            style={[styles.tab, planMode && styles.tabTight, roomId === r.id && styles.tabActive]}
+                        >
                             <Text style={[styles.tabText, roomId === r.id && styles.tabTextActive]}>{r.name}</Text>
                         </Pressable>
                     ))}
@@ -341,16 +350,21 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                     ))}
                 </ScrollView>
             ) : planMode && currentRoom ? (
-                /* Vue plan : disposition réelle de la salle (iPad en priorité) */
-                <RoomPlan
-                    room={currentRoom}
-                    tables={tables}
-                    decorations={decorations}
-                    stateOf={tableStateOf}
-                    onPressTable={openTable}
-                    onLongPressTable={tableActions}
-                    onDropTable={handleDrop}
-                />
+                /* Vue plan : disposition réelle de la salle (iPad en priorité).
+                   Le plan déborde des marges de l'écran — chaque pixel rendu ici
+                   agrandit les tables d'autant, puisque l'échelle est calculée
+                   pour que la salle tienne entièrement dans cette zone. */
+                <View style={styles.planBleed}>
+                    <RoomPlan
+                        room={currentRoom}
+                        tables={tables}
+                        decorations={decorations}
+                        stateOf={tableStateOf}
+                        onPressTable={openTable}
+                        onLongPressTable={tableActions}
+                        onDropTable={handleDrop}
+                    />
+                </View>
             ) : (
                 /* Vue liste : PAS d'image de fond. Une photo derrière une grille de
                    tuiles n'apporte aucune information et nuit à la lisibilité des
@@ -450,6 +464,16 @@ const styles = StyleSheet.create({
     server: { color: theme.colors.text, fontSize: 18, fontWeight: '700' },
     menuBtn: { padding: theme.spacing(2), borderRadius: theme.radius.sm, backgroundColor: theme.colors.surfaceAlt },
     tabs: { flexGrow: 0, marginBottom: theme.spacing(4) },
+    // En vue plan, le chrome se resserre : ces pixels reviennent à la salle.
+    tabsTight: { marginBottom: theme.spacing(2) },
+    tabTight: { paddingVertical: theme.spacing(2.5) },
+    // Le plan annule les marges de l'écran pour occuper toute la surface utile
+    // (les marges de sécurité, elles, restent gérées par Screen).
+    planBleed: {
+        flex: 1,
+        marginHorizontal: -theme.spacing(4),
+        marginBottom: -theme.spacing(4),
+    },
     tabsContent: { gap: GAP, paddingRight: theme.spacing(2) },
     tab: { paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(3.5), borderRadius: theme.radius.md, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' },
     tabActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },

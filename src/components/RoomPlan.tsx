@@ -47,6 +47,21 @@ const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 3;
 
 /**
+ * Taille minimale, en pixels, d'une table pour rester confortablement touchable.
+ *
+ * Le plan est TOUJOURS mis à l'échelle pour tenir entièrement dans la zone
+ * disponible : il n'y a donc jamais rien à aller chercher hors de l'écran, et
+ * déplacer ou zoomer ne peut que décaler la vue par mégarde. Les gestes ne se
+ * justifient que dans un seul cas : un plan si dense que les tables deviennent
+ * trop petites pour être visées — ce qui n'arrive pas sur un iPad.
+ *
+ * En dessous de ce seuil on autorise zoom et déplacement ; au-dessus, le plan
+ * est FIGÉ. C'est une règle de mesure, pas de matériel : elle donne le bon
+ * comportement sur chaque appareil sans distinguer les modèles.
+ */
+const MIN_TABLE_TOUCH = 56;
+
+/**
  * Distance entre le bord d'une table et le centre de ses chaises, en unités de
  * grille. Même valeur que l'éditeur de l'admin : le plan doit se lire pareil des
  * deux côtés, sinon un plan dessiné serré paraît aéré en salle (et l'inverse).
@@ -143,6 +158,22 @@ export function RoomPlan({
     // aucun recalcul de largeurs/hauteurs, juste une mise à l'échelle GPU.
     const px = (units: number) => units * baseScale;
 
+    // Plan figé dès que les tables sont assez grandes pour être visées sans
+    // ajustement — cf. MIN_TABLE_TOUCH.
+    const locked = useMemo(() => {
+        if (!baseScale) return true;
+        const placed = tables.filter((t) => t.pos_x != null && t.pos_y != null);
+        if (!placed.length) return true;
+        const smallest = Math.min(...placed.map((t) => Math.min(t.width, t.height) * baseScale));
+        return smallest >= MIN_TABLE_TOUCH;
+    }, [tables, baseScale]);
+
+    // Le canevas de la salle et la zone disponible ont rarement les mêmes
+    // proportions : on centre le plan dans la place restante plutôt que de le
+    // coller en haut à gauche, ce qui laissait une bande vide d'un seul côté.
+    const offsetX = Math.max(0, (viewport.width - px(room.plan_width)) / 2);
+    const offsetY = Math.max(0, (viewport.height - px(room.plan_height)) / 2);
+
     useEffect(() => {
         const a = pan.x.addListener(({ value }) => { live.current.x = value; });
         const b = pan.y.addListener(({ value }) => { live.current.y = value; });
@@ -154,8 +185,18 @@ export function RoomPlan({
     // pour ne pas travailler sur des valeurs figées à la création.
     const containerRef = useRef<View>(null);
     const originRef = useRef({ x: 0, y: 0 }); // position du conteneur dans la fenêtre
-    const stateRef = useRef({ baseScale, tables, dragTableId });
-    stateRef.current = { baseScale, tables, dragTableId };
+    const stateRef = useRef({ baseScale, tables, dragTableId, locked, offsetX, offsetY });
+    stateRef.current = { baseScale, tables, dragTableId, locked, offsetX, offsetY };
+
+    // Un plan qui redevient figé (rotation de l'écran, retour à une salle moins
+    // dense) ne doit pas conserver le décalage hérité du geste précédent.
+    useEffect(() => {
+        if (!locked) return;
+        pan.setValue({ x: 0, y: 0 });
+        zoomValue.setValue(1);
+        transformedRef.current = false;
+        setTransformed(false);
+    }, [locked, pan, zoomValue]);
 
     /**
      * Table située sous un point de l'écran. L'origine de la transformation est
@@ -163,11 +204,11 @@ export function RoomPlan({
      * simple soustraction puis division.
      */
     const tableAt = (pageX: number, pageY: number): Table | null => {
-        const { baseScale: bs, tables: list } = stateRef.current;
+        const { baseScale: bs, tables: list, offsetX: ox, offsetY: oy } = stateRef.current;
         const sc = bs * live.current.zoom;
         if (!sc) return null;
-        const x = (pageX - originRef.current.x - live.current.x) / sc;
-        const y = (pageY - originRef.current.y - live.current.y) / sc;
+        const x = (pageX - originRef.current.x - ox - live.current.x) / sc;
+        const y = (pageY - originRef.current.y - oy - live.current.y) / sc;
         for (const t of list) {
             if (t.pos_x == null || t.pos_y == null) continue;
             if (x >= t.pos_x && x <= t.pos_x + t.width && y >= t.pos_y && y <= t.pos_y + t.height) {
@@ -185,10 +226,13 @@ export function RoomPlan({
                 // elle-même : sinon le geste resterait piégé dans le Pressable.
                 onStartShouldSetPanResponderCapture: () => stateRef.current.dragTableId != null,
                 onMoveShouldSetPanResponderCapture: () => stateRef.current.dragTableId != null,
-                // Sinon on ne capture qu'à partir d'un vrai mouvement : un simple
-                // appui doit rester disponible pour la table en dessous.
+                // Plan figé : on ne prend JAMAIS la main sur un mouvement. C'est ce
+                // qui empêche un doigt qui glisse de décaler la salle en plein
+                // service. Le transfert de table, lui, passe par la capture
+                // ci-dessus et reste donc intact.
                 onMoveShouldSetPanResponder: (e, g) =>
-                    Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6 || e.nativeEvent.touches.length > 1,
+                    !stateRef.current.locked
+                    && (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6 || e.nativeEvent.touches.length > 1),
                 onPanResponderGrant: () => {
                     gesture.current.startX = live.current.x;
                     gesture.current.startY = live.current.y;
@@ -202,6 +246,8 @@ export function RoomPlan({
                         setDropTargetId(over && over.id !== stateRef.current.dragTableId ? over.id : null);
                         return;
                     }
+
+                    if (stateRef.current.locked) return;
 
                     const touches = e.nativeEvent.touches;
                     if (touches.length >= 2) {
@@ -248,9 +294,17 @@ export function RoomPlan({
         ]).start(() => { transformedRef.current = false; setTransformed(false); });
     };
 
-    const planStyle = {
+    // Géométrie commune aux deux modes : le plan est posé à sa place centrée.
+    const planBox = {
+        position: 'absolute' as const,
+        left: offsetX,
+        top: offsetY,
         width: px(room.plan_width),
         height: px(room.plan_height),
+    };
+
+    const planStyle = {
+        ...planBox,
         // Origine en haut à gauche : le zoom ne décale pas le plan, et la
         // conversion écran -> plan reste triviale pour le test de survol.
         transformOrigin: 'top left' as const,
@@ -260,6 +314,11 @@ export function RoomPlan({
             { scale: zoomValue },
         ],
     };
+
+    // Plan figé : une View ordinaire suffit. On évite la couche de composition
+    // que l'animation impose, pour un plan qui ne bougera jamais.
+    const PlanLayer = locked ? View : Animated.View;
+    const planLayerStyle = locked ? planBox : planStyle;
 
     return (
         <View
@@ -273,7 +332,7 @@ export function RoomPlan({
             {...panResponder.panHandlers}
         >
             {baseScale > 0 && (
-                <Animated.View style={[styles.plan, planStyle]}>
+                <PlanLayer style={[styles.plan, planLayerStyle]}>
                     {room.background_image_url && (
                         <Image
                             source={{ uri: room.background_image_url }}
@@ -427,7 +486,7 @@ export function RoomPlan({
                             </Pressable>
                         );
                     })}
-                </Animated.View>
+                </PlanLayer>
             )}
 
             {/* Bandeau d'aide pendant un déplacement : on annonce l'action à venir. */}
@@ -443,7 +502,7 @@ export function RoomPlan({
                 </View>
             )}
 
-            {dragTableId == null && transformed && (
+            {!locked && dragTableId == null && transformed && (
                 <Pressable style={styles.recenter} onPress={recenter}>
                     <Text style={styles.recenterText}>{tr('Recentrer')}</Text>
                 </Pressable>
