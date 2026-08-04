@@ -7,8 +7,8 @@
  * colonnes, pas à l'estime.
  *
  * Usage :
- *   npm run mock-printer            (terminal 1)
- *   node scripts/preview-receipt.mjs [fr|nl|en]
+ *   npm run mock-printer                              (terminal 1)
+ *   node scripts/preview-receipt.mjs [fr|nl|en] [caisse|cuisine]
  */
 import esbuild from 'esbuild';
 import path from 'node:path';
@@ -23,7 +23,7 @@ const require_ = createRequire(import.meta.url);
 const built = await esbuild.build({
     stdin: {
         contents: `
-            export { buildReceipt } from '${APP}/src/printer/printer';
+            export { buildReceipt, buildKitchenTicket } from '${APP}/src/printer/printer';
             export { useLocale } from '${APP}/src/i18n';
         `,
         resolveDir: APP,
@@ -79,7 +79,14 @@ const settings = {
 const langue = process.argv[2] || 'fr';
 mod.exports.useLocale.setState({ locale: langue, overridden: true });
 
-const data = mod.exports.buildReceipt(order, lines, settings, { tableLabel: '2' });
+const document = process.argv[3] || 'caisse';
+const data = document === 'cuisine'
+    ? mod.exports.buildKitchenTicket(order, lines, {
+        tableLabel: '12',
+        roomName: 'Salle principale',
+        serverName: 'Rinor',
+    })
+    : mod.exports.buildReceipt(order, lines, settings, { tableLabel: '2' });
 
 const net = await import('node:net');
 const socket = net.createConnection({ host: '127.0.0.1', port: 9100 }, () => {

@@ -89,6 +89,17 @@ export function enqueuePrint(printer: Printer, data: Buffer): Promise<boolean> {
 
 const euro = (n: number) => `${n.toFixed(2)} EUR`;
 
+/**
+ * Ligne d'en-tête d'un ticket cuisine, aussi grande que la largeur l'autorise.
+ *
+ * La double largeur ramène la ligne à 24 signes : au-delà, le texte passerait à
+ * la ligne et perdrait tout son intérêt. On se rabat alors sur la double
+ * hauteur seule, qui rend les 48 colonnes tout en restant lisible de loin.
+ */
+function bigLine(b: EscPosBuilder, text: string): void {
+    b.size(text.length <= 24 ? 2 : 1, 2).line(text).size(1, 1);
+}
+
 /** Ticket cuisine/bar : gros texte, SANS prix. isCancellation = ticket d'annulation. */
 export function buildKitchenTicket(
     order: Order,
@@ -102,12 +113,34 @@ export function buildKitchenTicket(
         b.align('center').bold(true).size(2, 2).line('*** ANNULATION ***');
         b.size(1, 1);
     }
-    b.align('center').bold(true).size(1, 1);
-    b.line(meta.roomName ? `${meta.roomName} - Table ${meta.tableLabel ?? '-'}` : 'COMPTOIR');
-    b.size(1, 1).line(`Serveur: ${meta.serverName}`);
+    /*
+     * En-tête d'un ticket cuisine : il se lit à un mètre, au-dessus d'un passe,
+     * les mains occupées. Trois informations priment, dans cet ordre :
+     *
+     *      SALLE PRINCIPALE     <- où
+     *          TABLE 12         <- où précisément
+     *          Rinor            <- qui a pris la commande
+     *
+     * Le reste (sur place / à emporter, n° de ticket) descend en petit : c'est
+     * du contexte, pas ce qu'on cherche des yeux en attrapant le papier.
+     */
+    b.align('center').bold(true);
+
+    if (meta.roomName) {
+        bigLine(b, meta.roomName.toUpperCase());
+        bigLine(b, `TABLE ${meta.tableLabel ?? '-'}`);
+    } else {
+        bigLine(b, 'COMPTOIR');
+    }
+
+    // Le serveur : en double hauteur, sous la table. C'est lui qu'on appelle
+    // quand une commande pose question.
+    b.size(1, 2).line(meta.serverName).size(1, 1);
+
+    b.bold(false);
     b.line(order.service_type === 'takeaway' ? 'A EMPORTER' : 'SUR PLACE');
-    if (order.ticket_number != null) b.bold(true).line(`Ticket #${order.ticket_number}`).bold(false);
-    b.align('left').bold(false).rule();
+    if (order.ticket_number != null) b.line(`Ticket #${order.ticket_number}`);
+    b.align('left').rule();
 
     for (const l of lines) {
         const prefix = isCancellation ? 'ANNULER ' : '';
