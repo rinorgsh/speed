@@ -157,6 +157,7 @@ export const en: Record<string, string> = {
     'Remise': 'Discount',
 
     // --- Ticket client (langue de la clientèle) ---
+    'Ticket': 'Receipt no.',
     "Total avant remise": "Total before discount",
     "Dont TVA": "Incl. VAT",
     "Sous-total": "Subtotal",

@@ -231,13 +231,13 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
 
             // 3) Ticket client + remontée serveur.
             const paid = useCart.getState().order!;
-            const printed = await printCustomerReceipt(paid, false).catch(() => false);
+            const printed = await printCustomerReceipt(paid).catch(() => false);
             await flushOutbox();
 
             if (!printed) {
                 await new Promise<void>((resolve) => {
                     Alert.alert('Ticket non imprimé', "L'imprimante caisse n'a pas répondu. Le paiement est bien enregistré.", [
-                        { text: 'Réimprimer', onPress: async () => { await printCustomerReceipt(paid, false).catch(() => false); resolve(); } },
+                        { text: 'Réimprimer', onPress: async () => { await printCustomerReceipt(paid).catch(() => false); resolve(); } },
                         { text: 'Continuer sans', style: 'cancel', onPress: () => resolve() },
                     ]);
                 });

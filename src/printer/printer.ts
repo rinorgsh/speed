@@ -3,7 +3,7 @@ import TcpSocket from 'react-native-tcp-socket';
 import { PRINTING } from '../config';
 import type { Order, OrderLine, PrepStation, Printer, Product, Category, Tax } from '../types';
 import { EscPosBuilder } from './escpos';
-import { tIn } from '../i18n';
+import { t } from '../i18n';
 
 /**
  * Module d'impression POS — Epson TM-m30II (ESC/POS sur TCP 9100).
@@ -176,7 +176,9 @@ export function buildBill(
     meta: { tableLabel: string | null; serverName: string },
 ): Buffer {
     const b = new EscPosBuilder().init();
-    const rt = (key: string) => tIn(settings.receipt_locale ?? settings.default_locale, key);
+    // Même règle que le ticket de caisse : la langue de l'APPAREIL, celle dans
+    // laquelle le serveur s'adresse au client.
+    const rt = (key: string) => t(key);
 
     // En-tête établissement.
     b.align('center').bold(true).size(2, 2).line(settings.restaurant_name ?? 'POS');
@@ -224,24 +226,49 @@ export function buildBill(
     return b.build();
 }
 
+/**
+ * Ligne à quatre colonnes de la ventilation TVA, calée sur 48 caractères.
+ *
+ * Les nombres sont alignés à droite : c'est ce qui rend une colonne de montants
+ * lisible et vérifiable d'un coup d'œil, y compris par un comptable.
+ */
+function vatRow(a: string, b: string, c: string, d: string): string {
+    return a.padStart(12) + b.padStart(12) + c.padStart(11) + d.padStart(13);
+}
+
 /** Facture / ticket client : prix + ventilation TVA + en-tête établissement. */
 export function buildReceipt(
     order: Order,
     lines: OrderLine[],
     settings: Record<string, string | null>,
-    detailed: boolean,
+    meta: { tableLabel: string | null },
 ): Buffer {
     const b = new EscPosBuilder().init();
+
+    // Langue du ticket : celle de l'APPAREIL. Le serveur qui encaisse bascule
+    // l'application dans la langue du client, et le ticket suit — « TVA »
+    // devient « Btw » en néerlandais, « VAT » en anglais.
+    const rt = (key: string) => t(key);
 
     // En-tête établissement.
     b.align('center').bold(true).size(2, 2).line(settings.restaurant_name ?? 'POS');
     b.size(1, 1).bold(false);
     if (settings.address) b.line(settings.address);
     if (settings.phone) b.line(settings.phone);
-    if (settings.vat_number) b.line(`TVA: ${settings.vat_number}`);
-    // N° de ticket du jour (bien visible) + date.
+    if (settings.vat_number) b.line(`${rt('TVA')}: ${settings.vat_number}`);
+
+    // Repère principal : la TABLE, pas le numéro de ticket. C'est ce que le
+    // client et le serveur cherchent des yeux en reprenant un ticket.
+    b.feed().bold(true).size(1, 2);
+    b.line(meta.tableLabel
+        ? `${rt('Table').toUpperCase()} N°${meta.tableLabel}`
+        : rt('Comptoir').toUpperCase());
+    b.size(1, 1).bold(false);
+
+    // Le numéro de ticket reste imprimé, en petit : c'est lui qui permet de
+    // retrouver une vente dans le rapport Z et la comptabilité.
     if (order.ticket_number != null) {
-        b.feed().bold(true).size(1, 2).line(`TICKET N°${order.ticket_number}`).size(1, 1).bold(false);
+        b.line(`${rt('Ticket')} ${order.ticket_number}`);
     }
     b.line(timeStamp());
     b.align('left').rule();
@@ -258,9 +285,6 @@ export function buildReceipt(
 
     // Remise : affichée AVANT les totaux, avec le total brut, pour que le client
     // voie ce qui lui a été accordé.
-    // Langue du ticket : réglage de l'établissement (« receipt_locale »), qui
-    // peut différer de la langue de travail du serveur qui encaisse.
-    const rt = (key: string) => tIn(settings.receipt_locale ?? settings.default_locale, key);
     const discount = order.discount_amount ?? 0;
     if (discount > 0) {
         b.twoCols(rt('Total avant remise'), euro(round2(order.total + discount)));
@@ -271,13 +295,36 @@ export function buildReceipt(
         if (order.discount_reason) b.line(`  (${order.discount_reason})`);
     }
 
-    // Totaux + ventilation TVA (facture détaillée). La remise est déjà répartie
-    // au prorata dans les montants de chaque ligne -> la ventilation reste juste.
-    if (detailed) {
-        for (const v of vatBreakdown(lines, discount)) {
-            b.twoCols(`${rt('Dont TVA')} ${v.rate}%`, euro(v.taxAmount));
+    /*
+     * Ventilation TVA, une ligne par taux :
+     *
+     *           TA    TAX RATE         TX        TOTAL
+     *        11,91       21,00       2,49        14,40
+     *
+     * TA = base hors taxe, TX = montant de la taxe, TOTAL = TTC. C'est la forme
+     * attendue sur un ticket belge, et elle se vérifie de tête : TA + TX = TOTAL.
+     *
+     * Une remise sur l'addition est déjà répartie au prorata entre les taux par
+     * `vatBreakdown` — sans quoi la TVA déclarée dépasserait l'encaissé.
+     */
+    const breakdown = vatBreakdown(lines, discount);
+    if (breakdown.length) {
+        // Pas de trait ici : celui qui ferme la liste des articles fait office
+        // de séparateur, deux traits collés feraient sale.
+        b.line(vatRow('TA', 'TAX RATE', 'TX', 'TOTAL'));
+        for (const v of breakdown) {
+            // Nombres bruts : la devise est évidente et « EUR » sur chaque
+            // cellule rendrait le tableau illisible.
+            b.line(vatRow(
+                v.base.toFixed(2),
+                v.rate.toFixed(2),
+                v.taxAmount.toFixed(2),
+                round2(v.base + v.taxAmount).toFixed(2),
+            ));
         }
+        b.rule();
     }
+
     b.twoCols(rt('Sous-total'), euro(order.subtotal));
     b.twoCols(rt('TVA'), euro(order.tax_total));
     b.bold(true).size(1, 2).twoCols(rt('TOTAL'), euro(order.total)).size(1, 1).bold(false);

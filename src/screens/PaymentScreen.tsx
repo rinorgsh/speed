@@ -90,9 +90,7 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
         const current = useCart.getState().order!;
         // Vente comptoir = sans salle ni table (walk-in).
         const wasCounter = current.room_id === null && current.table_id === null;
-        // `false` = pas de ventilation TVA par taux sur le ticket. Le choix a été
-        // retiré de l'écran (voir renderInvoiceToggle, désactivé).
-        const printed = await printCustomerReceipt(current, false).catch(() => false);
+        const printed = await printCustomerReceipt(current).catch(() => false);
         await flushOutbox();
         setValidating(false);
 
@@ -101,7 +99,7 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
         if (!printed) {
             await new Promise<void>((resolve) => {
                 Alert.alert('Ticket non imprimé', "L'imprimante caisse n'a pas répondu. Le paiement est bien enregistré.", [
-                    { text: 'Réimprimer', onPress: async () => { await printCustomerReceipt(current, false).catch(() => false); resolve(); } },
+                    { text: 'Réimprimer', onPress: async () => { await printCustomerReceipt(current).catch(() => false); resolve(); } },
                     { text: 'Continuer sans', style: 'cancel', onPress: () => resolve() },
                 ]);
             });
@@ -302,31 +300,6 @@ export function PaymentScreen({ navigation }: NativeStackScreenProps<RootStackPa
             </Pressable>
         </View>
     );
-
-    /*
-     * DÉSACTIVÉ (voir aussi l'appel à printCustomerReceipt, forcé à `false`).
-     *
-     * Ce que faisait l'interrupteur : ajouter au ticket client une ligne
-     * « Dont TVA 6% / 12% / 21% » par taux présent dans la commande. Rien de
-     * plus — le total de TVA, lui, est imprimé dans tous les cas.
-     *
-     * Pourquoi il est retiré : le mot « facture » est trompeur. Une vraie
-     * facture belge exige le nom et le n° de TVA du client et une numérotation
-     * séquentielle propre, que ce document n'a pas. On offrait donc un réglage
-     * de plus à chaque encaissement pour un gain quasi nul, sur l'écran qui doit
-     * justement aller le plus vite.
-     *
-     * Pour le rétablir : remettre l'état `invoice` (useState + Switch importé)
-     * et repasser `invoice` à printCustomerReceipt. Mais s'il s'agit d'émettre
-     * de vraies factures, c'est le sujet entier qu'il faut traiter (client,
-     * numérotation séquentielle, copie), pas cet interrupteur.
-     */
-    // const renderInvoiceToggle = () => (
-    //     <View style={styles.invoiceRow}>
-    //         <Text style={styles.invoiceLabel}>{t('Facture détaillée (ventilation TVA)')}</Text>
-    //         <Switch value={invoice} onValueChange={setInvoice} />
-    //     </View>
-    // );
 
     const renderActions = () => (
         <View style={isTablet ? styles.footerTablet : styles.footer}>

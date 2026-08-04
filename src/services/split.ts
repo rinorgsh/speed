@@ -63,7 +63,7 @@ export function buildSubticket(parent: Order, assignments: SplitAssignment[], me
 /** Persiste le sous-ticket (outbox), imprime son reçu, pousse au serveur. */
 export async function settleSubticket(order: Order): Promise<boolean> {
     await db.saveOrder(order); // synced=0 -> part dans l'outbox
-    const printed = await printCustomerReceipt(order, false).catch(() => false);
+    const printed = await printCustomerReceipt(order).catch(() => false);
     await flushOutbox();
     return printed;
 }

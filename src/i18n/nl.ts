@@ -158,10 +158,11 @@ export const nl: Record<string, string> = {
     'Remise': 'Korting',
 
     // --- Ticket client (langue de la clientèle) ---
+    'Ticket': 'Ticket',
     "Total avant remise": "Totaal voor korting",
     "Dont TVA": "Waarvan btw",
     "Sous-total": "Subtotaal",
-    "TVA": "Btw",
+    "TVA": "BTW",
     "TOTAL": "TOTAAL",
     "Especes": "Contant",
     "Merci !": "Bedankt!",

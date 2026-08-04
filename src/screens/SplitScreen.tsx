@@ -69,7 +69,7 @@ export function SplitScreen({ navigation }: NativeStackScreenProps<RootStackPara
                 cart.addPayment(method, cart.order!.total);
                 cart.markPaid();
                 const paid = useCart.getState().order!;
-                await printCustomerReceipt(paid, false).catch(() => false);
+                await printCustomerReceipt(paid).catch(() => false);
                 await flushOutbox();
                 cart.clear();
                 navigation.reset({ index: 0, routes: [{ name: 'Rooms' }] });

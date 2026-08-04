@@ -135,14 +135,17 @@ export async function printBill(order: Order): Promise<boolean> {
     }));
 }
 
-/** Imprime la facture/ticket client sur l'imprimante receipt + ouvre le tiroir si cash. */
-export async function printCustomerReceipt(order: Order, detailed: boolean): Promise<boolean> {
+/** Imprime le ticket de caisse sur l'imprimante receipt + ouvre le tiroir si cash. */
+export async function printCustomerReceipt(order: Order): Promise<boolean> {
     const { settings, receiptPrinter } = useConfig.getState();
     const printer = receiptPrinter();
     if (!printer) return false;
 
+    // Le ticket porte le numéro de TABLE : c'est le repère que le client et le
+    // serveur cherchent des yeux, bien avant le numéro de ticket.
+    const meta = await orderMeta(order);
     const activeLines = order.lines.filter((l) => !l.voided && l.qty > 0);
-    const data = buildReceipt(order, activeLines, settings, detailed);
+    const data = buildReceipt(order, activeLines, settings, { tableLabel: meta.tableLabel });
     const ok = await enqueuePrint(printer, data);
 
     // Ouverture du tiroir-caisse si un paiement cash a eu lieu.

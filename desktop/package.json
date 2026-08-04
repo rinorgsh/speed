@@ -14,9 +14,11 @@
     "postinstall": "electron-builder install-app-deps",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:win": "npm run build && electron-builder --win --publish never",
-    "release:win": "npm run build && electron-builder --win --publish always"
+    "release:win": "npm run build && electron-builder --win --publish always",
+    "preview-receipt": "node scripts/preview-receipt.mjs"
   },
   "devDependencies": {
+    "@types/react-dom": "^19.2.3",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.24.0",
