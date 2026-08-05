@@ -5,6 +5,7 @@ import { Delete, ChevronLeft, Banknote, CreditCard, Search, X, Send, MessageSqua
 import { Screen } from '../components/Screen';
 import { OptionsModal } from '../components/OptionsModal';
 import { LineActionsSheet } from '../components/LineActionsSheet';
+import { ProductTile } from '../components/ProductTile';
 import { LineNoteModal } from '../components/LineNoteModal';
 import { theme } from '../theme';
 import { useConfig } from '../store/useConfig';
@@ -329,26 +330,16 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
                     )}
 
                     <ScrollView style={{ flex: 1, marginTop: theme.spacing(2) }} contentContainerStyle={[styles.grid, { gap: GAP }]}>
-                        {shown.map((p) => {
-                            const qty = counts.get(p.id) ?? 0;
-                            return (
-                                <Pressable
-                                    key={p.id}
-                                    onPress={() => onProduct(p)}
-                                    disabled={!p.available}
-                                    style={[styles.product, { width: cell, height: cell, backgroundColor: p.color ?? theme.colors.surface }, !p.available && styles.unavailable]}
-                                >
-                                    <Text style={styles.productName} numberOfLines={2}>{p.name}</Text>
-                                    <Text style={styles.productPrice}>{p.is_open_price ? t('Prix libre') : euro(p.price)}</Text>
-                                    {qty > 0 && (
-                                        <View style={styles.counter}>
-                                            <Text style={styles.counterText}>{fmtQty(qty)}</Text>
-                                        </View>
-                                    )}
-                                    {!p.available && <Text style={styles.badge86}>86</Text>}
-                                </Pressable>
-                            );
-                        })}
+                        {shown.map((p) => (
+                            <ProductTile
+                                key={p.id}
+                                product={p}
+                                size={cell}
+                                qty={counts.get(p.id) ?? 0}
+                                price={p.is_open_price ? t('Prix libre') : euro(p.price)}
+                                onPress={() => onProduct(p)}
+                            />
+                        ))}
                         {!shown.length && <Text style={styles.empty}>{t('Aucun produit.')}</Text>}
                     </ScrollView>
                 </View>

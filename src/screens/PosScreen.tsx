@@ -4,6 +4,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Search, Send, ShoppingCart, X } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
 import { OptionsModal } from '../components/OptionsModal';
+import { ProductTile } from '../components/ProductTile';
 import { theme } from '../theme';
 import { useConfig } from '../store/useConfig';
 import { useCart } from '../store/useCart';
@@ -165,26 +166,16 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
 
             {/* Grille produits — occupe tout l'espace dispo */}
             <ScrollView style={styles.gridScroll} contentContainerStyle={styles.grid}>
-                {shown.map((p) => {
-                    const qty = counts.get(p.id) ?? 0;
-                    return (
-                        <Pressable
-                            key={p.id}
-                            onPress={() => onProduct(p)}
-                            disabled={!p.available}
-                            style={[styles.product, { backgroundColor: p.color ?? theme.colors.surface }, !p.available && styles.unavailable]}
-                        >
-                            <Text style={styles.productName} numberOfLines={2}>{p.name}</Text>
-                            <Text style={styles.productPrice}>{p.is_open_price ? 'Prix libre' : `${p.price.toFixed(2)} €`}</Text>
-                            {qty > 0 && (
-                                <View style={styles.counter}>
-                                    <Text style={styles.counterText}>{qty % 1 === 0 ? qty : qty.toFixed(0)}</Text>
-                                </View>
-                            )}
-                            {!p.available && <Text style={styles.badge86}>86</Text>}
-                        </Pressable>
-                    );
-                })}
+                {shown.map((p) => (
+                    <ProductTile
+                        key={p.id}
+                        product={p}
+                        size={PROD_SIZE}
+                        qty={counts.get(p.id) ?? 0}
+                        price={p.is_open_price ? 'Prix libre' : `${p.price.toFixed(2)} €`}
+                        onPress={() => onProduct(p)}
+                    />
+                ))}
                 {!shown.length && <Text style={styles.empty}>Aucun produit.</Text>}
             </ScrollView>
 
