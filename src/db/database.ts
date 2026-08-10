@@ -102,6 +102,9 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
         'ALTER TABLE rooms ADD COLUMN plan_width INTEGER DEFAULT 1000',
         'ALTER TABLE rooms ADD COLUMN plan_height INTEGER DEFAULT 700',
         'ALTER TABLE rooms ADD COLUMN background_opacity INTEGER DEFAULT 35',
+        // Salle « Emporter » : sans cette colonne, la TVA emporter dépendrait
+        // du serveur pensant à basculer l'interrupteur à chaque commande.
+        "ALTER TABLE rooms ADD COLUMN default_service_type TEXT DEFAULT 'dine_in'",
         'ALTER TABLE tables ADD COLUMN pos_x INTEGER',
         'ALTER TABLE tables ADD COLUMN pos_y INTEGER',
         'ALTER TABLE tables ADD COLUMN width INTEGER DEFAULT 90',
@@ -179,9 +182,10 @@ export async function importBootstrap(payload: BootstrapPayload): Promise<void> 
         }
         for (const r of payload.rooms) {
             await txn.runAsync(
-                'INSERT INTO rooms (id, name, sort_order, background_image_url, plan_enabled, plan_width, plan_height, background_opacity) VALUES (?,?,?,?,?,?,?,?)',
+                'INSERT INTO rooms (id, name, sort_order, background_image_url, plan_enabled, plan_width, plan_height, background_opacity, default_service_type) VALUES (?,?,?,?,?,?,?,?,?)',
                 r.id, r.name, r.sort_order, r.background_image_url,
-                r.plan_enabled ? 1 : 0, r.plan_width ?? 1000, r.plan_height ?? 700, r.background_opacity ?? 35);
+                r.plan_enabled ? 1 : 0, r.plan_width ?? 1000, r.plan_height ?? 700, r.background_opacity ?? 35,
+                r.default_service_type ?? 'dine_in');
             for (const tb of r.tables ?? []) {
                 await txn.runAsync(
                     'INSERT INTO tables (id, room_id, label, sort_order, pos_x, pos_y, width, height, rotation, shape, seats) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
@@ -265,7 +269,13 @@ export async function getPrinters(): Promise<Printer[]> {
 
 export async function getRooms(): Promise<Room[]> {
     const rows = await getDb().getAllAsync<any>('SELECT * FROM rooms ORDER BY sort_order');
-    return rows.map((r) => ({ ...r, plan_enabled: !!r.plan_enabled }));
+    // `default_service_type` peut être nul sur une base antérieure à la colonne :
+    // on retombe sur « sur place », jamais sur undefined (la TVA en dépend).
+    return rows.map((r) => ({
+        ...r,
+        plan_enabled: !!r.plan_enabled,
+        default_service_type: r.default_service_type === 'takeaway' ? 'takeaway' : 'dine_in',
+    }));
 }
 
 /** Calque décor d'une salle (rendu du mode plan). */

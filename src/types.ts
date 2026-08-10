@@ -39,6 +39,12 @@ export type DecorationKind = 'wall' | 'bar' | 'door' | 'plant' | 'stairs' | 'tex
 export interface Room {
     id: number;
     name: string;
+    /**
+     * Type de service des commandes ouvertes dans cette salle — donc la TVA
+     * appliquée. Une friterie tient une salle « Sur place » et une salle
+     * « Emporter » : le taux ne doit pas dépendre d'un geste du serveur.
+     */
+    default_service_type: ServiceType;
     sort_order: number;
     background_image_url: string | null;
     /** Plan dessiné dans l'admin : conditionne l'accès au mode « plan ». */

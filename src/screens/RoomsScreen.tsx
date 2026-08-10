@@ -155,7 +155,19 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
         const existing = await resolveTableOrder(table.id);
         setOpening(null);
         if (existing) resume(existing);
-        else startNew({ sessionId: session.id, serverId: server.id, roomId: table.room_id, tableId: table.id });
+        else {
+            // La salle décide du type de service, donc de la TVA. Un établissement
+            // qui organise ses salles en « Sur place » / « Emporter » ne peut pas
+            // dépendre du serveur pensant à basculer l'interrupteur du panier.
+            const room = rooms.find((r) => r.id === table.room_id);
+            startNew({
+                sessionId: session.id,
+                serverId: server.id,
+                roomId: table.room_id,
+                tableId: table.id,
+                serviceType: room?.default_service_type ?? 'dine_in',
+            });
+        }
 
         // Grand écran : même disposition que la caisse comptoir (grille produits +
         // ticket), bien plus efficace qu'un parcours en trois écrans sur un iPad.
