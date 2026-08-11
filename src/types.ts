@@ -16,6 +16,12 @@ export interface User {
     active: boolean;
     color: string | null;
     pin_hash?: string; // présent dans le payload bootstrap (vérif PIN hors-ligne)
+    /**
+     * Ouvre sa session sans taper de code. Distinct d'un `pin_hash` absent, qui
+     * signifie « ne peut pas ouvrir de session sur la caisse » — le cas d'un
+     * administrateur qui n'utilise que le back-office web.
+     */
+    no_pin?: boolean;
 }
 
 export interface Tax {

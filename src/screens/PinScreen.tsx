@@ -7,6 +7,7 @@ import { theme } from '../theme';
 import { useConfig } from '../store/useConfig';
 import { useAuth } from '../store/useAuth';
 import { verifyPinOffline } from '../utils/pin';
+import { signInAs } from '../services/signIn';
 import type { RootStackParamList } from '../navigation/types';
 import { useT } from '../i18n';
 
@@ -16,9 +17,6 @@ const PIN_LENGTH = 4;
 export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, 'Pin'>) {
     const { userId } = route.params;
     const user = useConfig((s) => s.users.find((u) => u.id === userId));
-    const sync = useConfig((s) => s.syncFromServer);
-    const setServer = useAuth((s) => s.setServer);
-    const refreshSession = useAuth((s) => s.refreshSession);
     const [pin, setPin] = useState('');
     const [checking, setChecking] = useState(false);
     const t = useT();
@@ -46,21 +44,13 @@ export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStac
             Alert.alert(t('PIN incorrect'), t('Réessayez.'));
             return;
         }
-        setServer(user);
-
-        // Synchro DÉFINITIVE avant d'entrer en salle : garantit que la config
-        // (salles, carte…) ET l'état de caisse correspondent bien au profil courant,
-        // même si un changement de profil vient d'avoir lieu (plus de données
-        // périmées ni de fausse invite « ouvrir la caisse »).
-        await sync();
-        await refreshSession();
-        const session = useAuth.getState().session;
+        const outcome = await signInAs(user);
         setChecking(false);
 
         // Routage selon l'état de la caisse.
-        if (session) {
+        if (outcome === 'rooms') {
             navigation.reset({ index: 0, routes: [{ name: 'Rooms' }] });
-        } else if (user.role === 'admin') {
+        } else if (outcome === 'open-session') {
             navigation.replace('OpenSession');
         } else {
             Alert.alert(t('Caisse fermée'), t('Aucune session ouverte. Demandez à un administrateur d\'ouvrir la caisse.'));

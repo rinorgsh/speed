@@ -45,7 +45,7 @@ function getDb(): SQLite.SQLiteDatabase {
 async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
     await d.execAsync(`
     CREATE TABLE IF NOT EXISTS cache_settings (key TEXT PRIMARY KEY, value TEXT);
-    CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, role TEXT, active INTEGER, color TEXT, pin_hash TEXT);
+    CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, role TEXT, active INTEGER, color TEXT, pin_hash TEXT, no_pin INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS taxes (id INTEGER PRIMARY KEY, name TEXT, rate REAL);
     CREATE TABLE IF NOT EXISTS printers (id INTEGER PRIMARY KEY, name TEXT, ip_address TEXT, port INTEGER, role TEXT, active INTEGER);
     CREATE TABLE IF NOT EXISTS rooms (
@@ -102,6 +102,8 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
         'ALTER TABLE rooms ADD COLUMN plan_width INTEGER DEFAULT 1000',
         'ALTER TABLE rooms ADD COLUMN plan_height INTEGER DEFAULT 700',
         'ALTER TABLE rooms ADD COLUMN background_opacity INTEGER DEFAULT 35',
+        // Accès caisse sans code : absent des installations antérieures.
+        'ALTER TABLE users ADD COLUMN no_pin INTEGER DEFAULT 0',
         // Salle « Emporter » : sans cette colonne, la TVA emporter dépendrait
         // du serveur pensant à basculer l'interrupteur à chaque commande.
         "ALTER TABLE rooms ADD COLUMN default_service_type TEXT DEFAULT 'dine_in'",
@@ -170,8 +172,8 @@ export async function importBootstrap(payload: BootstrapPayload): Promise<void> 
         // Config temps réel (serveur) stockée à part pour survivre hors-ligne.
         await txn.runAsync('INSERT INTO cache_settings (key, value) VALUES (?, ?)', REALTIME_KEY, payload.realtime ? JSON.stringify(payload.realtime) : null);
         for (const u of payload.users) {
-            await txn.runAsync('INSERT INTO users (id, name, role, active, color, pin_hash) VALUES (?,?,?,?,?,?)',
-                u.id, u.name, u.role, u.active ? 1 : 0, u.color, u.pin_hash ?? null);
+            await txn.runAsync('INSERT INTO users (id, name, role, active, color, pin_hash, no_pin) VALUES (?,?,?,?,?,?,?)',
+                u.id, u.name, u.role, u.active ? 1 : 0, u.color, u.pin_hash ?? null, u.no_pin ? 1 : 0);
         }
         for (const t of payload.taxes) {
             await txn.runAsync('INSERT INTO taxes (id, name, rate) VALUES (?,?,?)', t.id, t.name, t.rate);
@@ -255,7 +257,7 @@ export async function getRealtimeConfig(): Promise<RealtimeConfig | null> {
 
 export async function getUsers(): Promise<User[]> {
     const rows = await getDb().getAllAsync<any>('SELECT * FROM users WHERE active = 1 ORDER BY name');
-    return rows.map((r) => ({ ...r, active: !!r.active }));
+    return rows.map((r) => ({ ...r, active: !!r.active, no_pin: !!r.no_pin }));
 }
 
 export async function getTaxes(): Promise<Tax[]> {

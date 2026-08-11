@@ -6,6 +6,7 @@ import { Star, Store, ChevronDown, RefreshCw, CloudOff, RotateCcw } from 'lucide
 import { Screen } from '../components/Screen';
 import { theme } from '../theme';
 import { useConfig } from '../store/useConfig';
+import { signInAs, signsInWithoutPin } from '../services/signIn';
 import { useAuth } from '../store/useAuth';
 import { useFavorites } from '../store/useFavorites';
 import type { RootStackParamList } from '../navigation/types';
@@ -57,11 +58,39 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
         void runSync();
     }, [runSync, loadFavorites]));
 
+    const [entering, setEntering] = useState<number | null>(null);
+
     const ordered = useMemo(() => {
         const favs = users.filter((u) => favoriteIds.includes(u.id));
         const rest = users.filter((u) => !favoriteIds.includes(u.id));
         return [...favs, ...rest];
     }, [users, favoriteIds]);
+
+    /**
+     * Choix d'un serveur. Ceux autorisés à travailler sans code entrent d'un
+     * seul appui — dans un commerce à deux personnes, retaper un PIN à chaque
+     * commande n'apporte aucune sécurité, seulement de la lenteur. Les autres
+     * passent par l'écran de saisie.
+     */
+    const selectUser = async (u: typeof users[number]) => {
+        if (!signsInWithoutPin(u)) {
+            navigation.navigate('Pin', { userId: u.id });
+            return;
+        }
+        if (entering) return;
+
+        setEntering(u.id);
+        const outcome = await signInAs(u);
+        setEntering(null);
+
+        if (outcome === 'rooms') {
+            navigation.reset({ index: 0, routes: [{ name: 'Rooms' }] });
+        } else if (outcome === 'open-session') {
+            navigation.navigate('OpenSession');
+        } else {
+            Alert.alert(t('Caisse fermée'), t('Aucune session ouverte. Demandez à un administrateur d\'ouvrir la caisse.'));
+        }
+    };
 
     // Appui long sur le nom : réinitialiser l'appareil (changer de serveur/URL).
     const onResetPress = () => {
@@ -97,7 +126,7 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
                         <Pressable
                             key={u.id}
                             style={({ pressed }) => [styles.card, { width: cardSize, height: cardSize }, fav && styles.cardFav, pressed && styles.cardPressed]}
-                            onPress={() => navigation.navigate('Pin', { userId: u.id })}
+                            onPress={() => void selectUser(u)}
                             onLongPress={() => toggleFavorite(u.id)}
                             delayLongPress={400}
                         >
@@ -110,9 +139,15 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
                                 width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2,
                                 backgroundColor: u.color ?? theme.colors.surfaceAlt,
                             }]}>
-                                <Text style={[styles.initial, { fontSize: Math.round(avatarSize * 0.45) }]}>
-                                    {u.name.charAt(0).toUpperCase()}
-                                </Text>
+                                {/* Entrée sans code : la synchro prend un instant,
+                                    sans repère l'appui semblerait n'avoir rien fait. */}
+                                {entering === u.id ? (
+                                    <ActivityIndicator color="#fff" />
+                                ) : (
+                                    <Text style={[styles.initial, { fontSize: Math.round(avatarSize * 0.45) }]}>
+                                        {u.name.charAt(0).toUpperCase()}
+                                    </Text>
+                                )}
                             </View>
                             <Text style={[styles.name, { fontSize: Math.max(15, Math.min(22, cardSize * 0.13)) }]} numberOfLines={1}>
                                 {u.name}
