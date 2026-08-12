@@ -105,6 +105,13 @@ export function connectRealtime(config: RealtimeConfig | null, apiUrl: string, p
             console.log('[realtime] ⬇ RoomPlanUpdated');
             void useConfig.getState().syncFromServer();
         });
+        // Ordre des catégories changé dans l'admin (glisser-déposer) : un seul
+        // événement pour tout un niveau, on resynchronise plutôt que de recevoir
+        // quinze payloads.
+        channel.bind('CategoriesReordered', () => {
+            console.log('[realtime] ⬇ CategoriesReordered');
+            void useConfig.getState().syncFromServer();
+        });
         // Notes rapides modifiées dans l'admin : même traitement, la liste est
         // trop petite pour mériter un payload dédié.
         channel.bind('QuickNotesUpdated', () => {

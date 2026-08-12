@@ -158,6 +158,9 @@ export const useConfig = create<ConfigState>((set, get) => ({
         set((s) => {
             const exists = s.categories.some((x) => x.id === c.id);
             const categories = exists ? s.categories.map((x) => (x.id === c.id ? c : x)) : [...s.categories, c];
+            // Retri : le POS affiche les onglets dans l'ordre du tableau, un
+            // sort_order modifié doit donc déplacer la catégorie tout de suite.
+            categories.sort((a, b) => a.sort_order - b.sort_order);
             return { categories };
         });
     },
