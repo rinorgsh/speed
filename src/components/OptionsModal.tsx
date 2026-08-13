@@ -56,7 +56,7 @@ export function OptionsModal({
         for (const g of groups) {
             for (const optId of selected[g!.id] ?? []) {
                 const opt = g!.options.find((o: OptionItem) => o.id === optId);
-                if (opt) flat.push({ option_id: opt.id, name: opt.name, price_delta: opt.price_delta });
+                if (opt) flat.push({ option_id: opt.id, name: opt.name, price_delta: opt.price_delta, group: g!.name });
             }
         }
         onConfirm(flat, qty, note.trim() || null);

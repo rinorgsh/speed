@@ -216,6 +216,12 @@ export interface SelectedOption {
     option_id: number;
     name: string;
     price_delta: number;
+    /**
+     * Nom du groupe au moment du choix (« Sauce »), figé sur la ligne comme le
+     * reste du snapshot : renommer le groupe dans l'admin ne doit pas réécrire
+     * un ticket déjà imprimé. Absent des lignes créées avant cette version.
+     */
+    group?: string;
 }
 
 /** Ligne de commande locale (UUID client). */

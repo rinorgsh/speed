@@ -1,7 +1,7 @@
 import { Buffer } from 'buffer';
 import TcpSocket from 'react-native-tcp-socket';
 import { PRINTING } from '../config';
-import type { Order, OrderLine, PrepStation, Printer, Product, Category, Tax } from '../types';
+import type { Order, OrderLine, PrepStation, Printer, Product, Category, SelectedOption, Tax } from '../types';
 import { EscPosBuilder } from './escpos';
 import { t } from '../i18n';
 
@@ -100,6 +100,40 @@ function bigLine(b: EscPosBuilder, text: string): void {
     b.size(text.length <= 24 ? 2 : 1, 2).line(text).size(1, 1);
 }
 
+/**
+ * Options d'une ligne, regroupées par groupe de choix.
+ *
+ *      Sauce : Andalouse
+ *      Salade : Tomate, Oignon
+ *      Supplement : Cheddar (1,00 EUR)
+ *
+ * Plutôt qu'une liste à plat où « Andalouse » et « Cheddar » se ressemblent :
+ * en cuisine on lit la ligne « Sauce » d'un coup d'œil, sans se demander à quoi
+ * chaque terme se rapporte. Les lignes créées avant que le groupe soit figé sur
+ * le snapshot n'en ont pas : elles retombent sur l'ancien rendu, un par ligne.
+ *
+ * `withPrice` distingue le ticket cuisine (sans prix) des documents client.
+ */
+function optionLines(options: SelectedOption[], withPrice: boolean): string[] {
+    const rendered: string[] = [];
+    const grouped = new Map<string, string[]>();
+
+    for (const opt of options) {
+        const label = withPrice && opt.price_delta ? `${opt.name} (${euro(opt.price_delta)})` : opt.name;
+        if (!opt.group) {
+            rendered.push(`   + ${label}`);
+            continue;
+        }
+        grouped.set(opt.group, [...(grouped.get(opt.group) ?? []), label]);
+    }
+
+    for (const [group, labels] of grouped) {
+        rendered.push(`   ${group} : ${labels.join(', ')}`);
+    }
+
+    return rendered;
+}
+
 /** Ticket cuisine/bar : gros texte, SANS prix. isCancellation = ticket d'annulation. */
 export function buildKitchenTicket(
     order: Order,
@@ -146,9 +180,7 @@ export function buildKitchenTicket(
         const prefix = isCancellation ? 'ANNULER ' : '';
         b.size(2, 2).bold(true).line(`${prefix}${formatQty(l.qty)}x ${l.name_snapshot}`);
         b.size(1, 1).bold(false);
-        for (const opt of l.options_snapshot) {
-            b.line(`   + ${opt.name}`);
-        }
+        for (const ligne of optionLines(l.options_snapshot, false)) b.line(ligne);
         if (l.note) b.line(`   ** ${l.note}`);
         b.feed();
     }
@@ -233,9 +265,7 @@ export function buildBill(
 
     for (const l of lines) {
         b.twoCols(`${formatQty(l.qty)}x ${l.name_snapshot}`, euro(l.line_total));
-        for (const opt of l.options_snapshot) {
-            b.line(`   + ${opt.name}${opt.price_delta ? ` (${euro(opt.price_delta)})` : ''}`);
-        }
+        for (const ligne of optionLines(l.options_snapshot, true)) b.line(ligne);
         // Note sous le produit : le client doit retrouver sur l'addition ce
         // qu'il a demandé à table.
         if (l.note) b.line(`   ** ${l.note}`);
@@ -309,9 +339,7 @@ export function buildReceipt(
     // Lignes.
     for (const l of lines) {
         b.twoCols(`${formatQty(l.qty)}x ${l.name_snapshot}`, euro(l.line_total));
-        for (const opt of l.options_snapshot) {
-            b.line(`   + ${opt.name}${opt.price_delta ? ` (${euro(opt.price_delta)})` : ''}`);
-        }
+        for (const ligne of optionLines(l.options_snapshot, true)) b.line(ligne);
         if (l.note) b.line(`   ** ${l.note}`);
     }
     b.rule();
@@ -440,18 +468,29 @@ export function groupLinesByStation(
     const stationById = new Map(stations.map((s) => [s.id, s]));
     const printerById = new Map(printers.map((p) => [p.id, p]));
 
-    // Clé de regroupement : id du poste, ou 0 pour le repli historique.
-    const groups = new Map<number, { station: PrepStation | null; printer: Printer | null; lines: OrderLine[] }>();
+    /**
+     * Clé de regroupement = un ticket.
+     *
+     * Par poste de préparation quand il y en a un. Sinon PAR IMPRIMANTE : deux
+     * catégories routées vers deux imprimantes différentes doivent produire
+     * deux tickets, y compris si les deux fiches pointent la même machine —
+     * c'est ainsi qu'on obtient un ticket « durum » et un ticket « sandwich »
+     * sur le même rouleau. Auparavant toutes les lignes sans poste tombaient
+     * dans un groupe unique : un seul ticket sortait, sur l'imprimante de la
+     * première ligne, et le routage par catégorie n'avait aucun effet.
+     */
+    const groups = new Map<string, { station: PrepStation | null; printer: Printer | null; lines: OrderLine[] }>();
 
     for (const line of lines) {
         const product = line.product_id ? productById.get(line.product_id) : undefined;
         const category = product ? categoryById.get(product.category_id) : undefined;
         const station = category?.station_id ? stationById.get(category.station_id) ?? null : null;
 
-        const key = station?.id ?? 0;
         const printer = station
             ? (station.printer_id ? printerById.get(station.printer_id) ?? null : null)
             : ((category?.printer_id ? printerById.get(category.printer_id) : undefined) ?? legacyFallback);
+
+        const key = station ? `poste:${station.id}` : `imprimante:${printer?.id ?? 0}`;
 
         const group = groups.get(key) ?? { station, printer: printer ?? null, lines: [] };
         group.lines.push(line);
