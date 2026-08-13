@@ -8,6 +8,8 @@ import { useAuth } from './src/store/useAuth';
 import { useConfig } from './src/store/useConfig';
 import { connectRealtime, disconnectRealtime, realtimeState } from './src/services/realtime';
 import { startSyncLoop, stopSyncLoop } from './src/services/sync';
+import { onFailedPrintsChange, resumePendingPrints } from './src/printer/printer';
+import { useRealtime } from './src/store/useRealtime';
 import { useOTAUpdate } from './src/hooks/useOTAUpdate';
 import { useCart } from './src/store/useCart';
 import { useLocale } from './src/i18n';
@@ -42,6 +44,19 @@ export default function App() {
     useEffect(() => {
         if (enrolled) void loadFromCache();
     }, [enrolled, loadFromCache]);
+
+    /*
+     * Impressions : on reprend les travaux laissés en plan par un arrêt brutal,
+     * et on tient à jour le compteur de tickets en échec affiché sur la pastille.
+     * Un ticket non sorti est un plat qui ne sera pas préparé : il ne doit ni
+     * disparaître au redémarrage, ni rester invisible.
+     */
+    useEffect(() => {
+        if (!enrolled) return;
+        const off = onFailedPrintsChange((n) => useRealtime.getState().setFailedPrints(n));
+        void resumePendingPrints();
+        return off;
+    }, [enrolled]);
 
     // Temps réel (Reverb) : canal scopé sur le profil actif (s'adapte local/prod).
     useEffect(() => {

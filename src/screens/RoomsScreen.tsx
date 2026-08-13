@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
-import { Menu as MenuIcon, Wallet, LayoutGrid, Lock, ShoppingBag, Repeat, Map as MapIcon, Languages } from 'lucide-react-native';
+import { Menu as MenuIcon, Wallet, LayoutGrid, Lock, ShoppingBag, Repeat, Map as MapIcon, Languages, AlertTriangle } from 'lucide-react-native';
 
 const PAD = 16; // padding du Screen (spacing 4)
 const GAP = 12;
@@ -20,7 +20,8 @@ import { useCart } from '../store/useCart';
 import { useRealtime } from '../store/useRealtime';
 import { useTables } from '../store/useTables';
 import * as db from '../db/database';
-import { pullOpenOrders, resolveTableOrder, flushOutbox } from '../services/sync';
+import { pullOpenOrders, resolveTableOrder, flushOutbox, retryBlockedOrders } from '../services/sync';
+import { retryFailedPrints } from '../printer/printer';
 import { mergeTables, transferTable } from '../services/tableOps';
 import { LOCALES, useLocale, useT } from '../i18n';
 import type { RoomDecoration, Table } from '../types';
@@ -45,6 +46,8 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
     const refreshTables = useTables((s) => s.refresh);
     const users = useConfig((s) => s.users);
     const tableTick = useRealtime((s) => s.tableTick);
+    const blockedOrders = useRealtime((s) => s.blocked);
+    const failedPrints = useRealtime((s) => s.failedPrints);
     const [roomId, setRoomId] = useState<number | null>(rooms[0]?.id ?? null);
     const [floorView, setFloorView] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -261,6 +264,28 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
 
     const closeMenu = () => setMenuOpen(false);
 
+    /**
+     * Relance tout ce qui a échoué : commandes écartées après refus répétés du
+     * serveur, et tickets non imprimés. Les deux sont conservés en base — rien
+     * n'est jamais jeté en silence — et attendent qu'on répare la cause
+     * (imprimante rallumée, serveur redéployé) pour repartir.
+     */
+    const repairPending = async () => {
+        closeMenu();
+        const [commandes, tickets] = await Promise.all([retryBlockedOrders(), retryFailedPrints()]);
+
+        const bilan: string[] = [];
+        if (commandes.pushed) bilan.push(t(':n commande(s) envoyée(s)', { n: commandes.pushed }));
+        if (tickets.ok) bilan.push(t(':n ticket(s) imprimé(s)', { n: tickets.ok }));
+        if (tickets.failed) bilan.push(t(':n ticket(s) toujours en échec', { n: tickets.failed }));
+
+        Alert.alert(
+            t('Relance'),
+            bilan.length ? bilan.join('\n') : t('Rien n\'est reparti. Vérifiez le réseau et l\'imprimante.'),
+        );
+        await refreshTables();
+    };
+
     // Changer de profil (Restaurant / Event) : on vide le panier actif et on
     // revient à l'écran de choix (les commandes ouvertes restent en base par profil).
     const changeProfile = () => {
@@ -423,6 +448,16 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
             <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={closeMenu}>
                 <Pressable style={styles.menuBackdrop} onPress={closeMenu}>
                     <View style={styles.menu}>
+                        {/* N'apparaît QUE s'il y a quelque chose à réparer : une
+                            entrée permanente serait vite ignorée. */}
+                        {(blockedOrders > 0 || failedPrints > 0) && (
+                            <Pressable style={styles.menuItem} onPress={() => void repairPending()}>
+                                <AlertTriangle color={theme.colors.danger} size={20} />
+                                <Text style={[styles.menuText, { color: theme.colors.danger }]}>
+                                    {t('Relancer ce qui a échoué')} ({blockedOrders + failedPrints})
+                                </Text>
+                            </Pressable>
+                        )}
                         <Pressable style={styles.menuItem} onPress={() => void openComptoir()}>
                             <ShoppingBag color={theme.colors.text} size={20} />
                             <Text style={styles.menuText}>{t('Comptoir')}</Text>

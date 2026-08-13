@@ -42,11 +42,23 @@ export const useTables = create<TablesState>((set, get) => ({
 
     // Source de vérité : tables ouvertes + compteur d'articles en attente d'envoi.
     refresh: async () => {
-        const [ids, pending, summaries] = await Promise.all([
-            db.getOpenTableIds(),
-            db.getTablePendingCounts(),
-            db.getTableSummaries(),
-        ]);
-        set({ occupied: ids, pending, summaries });
+        // Single-flight : en plein service, les échos temps réel arrivent en
+        // rafale et déclenchaient chacun trois agrégats SQL. Les appels
+        // concurrents partagent désormais le même travail.
+        if (inFlightRefresh) return inFlightRefresh;
+
+        inFlightRefresh = (async () => {
+            const [ids, pending, summaries] = await Promise.all([
+                db.getOpenTableIds(),
+                db.getTablePendingCounts(),
+                db.getTableSummaries(),
+            ]);
+            set({ occupied: ids, pending, summaries });
+        })().finally(() => { inFlightRefresh = null; });
+
+        return inFlightRefresh;
     },
 }));
+
+/** Rafraîchissement en cours, partagé par les appels concurrents. */
+let inFlightRefresh: Promise<void> | null = null;

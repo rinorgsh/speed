@@ -184,4 +184,10 @@ export const nl: Record<string, string> = {
     'Erreur': 'Fout',
     'Langue': 'Taal',
     "Langue de l'établissement": 'Taal van de zaak',
+    'Relancer ce qui a échoué': 'Mislukte items opnieuw versturen',
+    'Relance': 'Opnieuw versturen',
+    ':n commande(s) envoyée(s)': ':n bestelling(en) verstuurd',
+    ':n ticket(s) imprimé(s)': ':n ticket(s) afgedrukt',
+    ':n ticket(s) toujours en échec': ':n ticket(s) nog steeds mislukt',
+    "Rien n'est reparti. Vérifiez le réseau et l'imprimante.": 'Niets is doorgestuurd. Controleer het netwerk en de printer.',
 };

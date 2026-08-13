@@ -5,7 +5,12 @@
 
 export type Role = 'admin' | 'manager' | 'server';
 export type ServiceType = 'dine_in' | 'takeaway';
-export type OrderStatus = 'open' | 'sent' | 'paid' | 'cancelled';
+/**
+ * `closed` est un statut PUREMENT LOCAL : le serveur nous a dit que la commande
+ * n'est plus ouverte sans préciser si elle a été encaissée ou annulée. Il n'est
+ * jamais envoyé — le serveur ne connaît que les quatre autres.
+ */
+export type OrderStatus = 'open' | 'sent' | 'paid' | 'cancelled' | 'closed';
 export type PaymentMethod = 'cash' | 'card';
 export type PrinterRole = 'order' | 'receipt';
 

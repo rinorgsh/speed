@@ -183,4 +183,10 @@ export const en: Record<string, string> = {
     'Erreur': 'Error',
     'Langue': 'Language',
     "Langue de l'établissement": 'Establishment language',
+    'Relancer ce qui a échoué': 'Retry what failed',
+    'Relance': 'Retry',
+    ':n commande(s) envoyée(s)': ':n order(s) sent',
+    ':n ticket(s) imprimé(s)': ':n ticket(s) printed',
+    ':n ticket(s) toujours en échec': ':n ticket(s) still failing',
+    "Rien n'est reparti. Vérifiez le réseau et l'imprimante.": 'Nothing went through. Check the network and the printer.',
 };

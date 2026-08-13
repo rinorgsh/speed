@@ -90,6 +90,21 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
     -- Préférences LOCALES à l'appareil (jamais vidées par la synchro).
     CREATE TABLE IF NOT EXISTS device_prefs (key TEXT PRIMARY KEY, value TEXT);
+    /*
+     * File d'impression PERSISTANTE.
+     *
+     * Un ticket qui n'est pas sorti est un plat qui ne sera pas préparé. La
+     * file vivait en mémoire : après trois tentatives le travail était perdu,
+     * et fermer l'application le perdait aussi. Ici chaque envoi est écrit
+     * AVANT d'être tenté, effacé seulement une fois imprimé, et conservé en
+     * échec pour être relancé — y compris après un redémarrage.
+     */
+    CREATE TABLE IF NOT EXISTS print_jobs (
+      id TEXT PRIMARY KEY, printer_id INTEGER, printer_name TEXT, host TEXT, port INTEGER,
+      label TEXT, payload TEXT, status TEXT DEFAULT 'pending', attempts INTEGER DEFAULT 0,
+      last_error TEXT, created_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_print_jobs_status ON print_jobs(status);
   `);
     // Colonnes ajoutées après coup : ignore l'erreur si elles existent déjà.
     await d.execAsync('ALTER TABLE order_lines ADD COLUMN sent_qty REAL DEFAULT 0').catch(() => {});
@@ -126,6 +141,20 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
         'ALTER TABLE categories ADD COLUMN station_id INTEGER',
         // Rang de la ligne au ticket : sans lui, l'ordre suivrait l'UUID.
         'ALTER TABLE order_lines ADD COLUMN position INTEGER DEFAULT 0',
+        /*
+         * Compteur de révision LOCAL, incrémenté à chaque écriture.
+         *
+         * Remplace la comparaison d'horodatage qui servait à savoir si la
+         * commande avait été rééditée pendant son envoi : deux écritures dans
+         * la même milliseconde donnaient la même valeur, et la seconde était
+         * marquée « synchronisée » sans jamais partir — un article ajouté
+         * disparaissait. Un entier monotone ne peut pas se répéter.
+         */
+        'ALTER TABLE orders ADD COLUMN rev INTEGER DEFAULT 0',
+        // Suivi des échecs de poussée : sert la mise en quarantaine.
+        'ALTER TABLE orders ADD COLUMN push_attempts INTEGER DEFAULT 0',
+        'ALTER TABLE orders ADD COLUMN push_error TEXT',
+        'ALTER TABLE orders ADD COLUMN quarantined INTEGER DEFAULT 0',
     ]) {
         await d.execAsync(sql).catch(() => {});
     }
@@ -399,12 +428,21 @@ export async function saveOrder(order: Order, synced = false): Promise<void> {
         await txn.runAsync(
             `INSERT OR REPLACE INTO orders
        (id, profile_id, ticket_number, version, session_id, room_id, table_id, server_id, status, merged_into, service_type, covers, subtotal, tax_total, total,
-        discount_type, discount_value, discount_amount, discount_reason, discount_by, opened_at, paid_at, payments, synced, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        discount_type, discount_value, discount_amount, discount_reason, discount_by, opened_at, paid_at, payments, synced, updated_at, rev,
+        push_attempts, push_error, quarantined)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+               COALESCE((SELECT rev FROM orders WHERE id = ?), 0) + ?,
+               ?, ?, ?)`,
             order.id, order.profile_id ?? null, order.ticket_number ?? null, order.version ?? 0, order.session_id, order.room_id, order.table_id, order.server_id, order.status,
             order.merged_into ?? null, order.service_type, order.covers, order.subtotal, order.tax_total, order.total,
             order.discount_type ?? null, order.discount_value ?? null, order.discount_amount ?? 0, order.discount_reason ?? null, order.discount_by ?? null,
             order.opened_at, order.paid_at, JSON.stringify(order.payments ?? []), synced ? 1 : 0, new Date().toISOString(),
+            // `rev` n'avance que sur une écriture LOCALE : un état reçu du
+            // serveur ne doit pas invalider un envoi en cours.
+            order.id, synced ? 0 : 1,
+            // push_attempts / push_error / quarantined remis à zéro : toute
+            // écriture donne une nouvelle chance à la commande d'être acceptée.
+            0, null, 0,
         );
         await txn.runAsync('DELETE FROM order_lines WHERE order_id = ?', order.id);
         for (const [i, l] of order.lines.entries()) {
@@ -553,19 +591,61 @@ export async function reconcileClosedOrders(openIds: string[], profileId: number
     );
     const stale = rows.map((r) => r.id).filter((id) => !openIds.includes(id));
     for (const id of stale) {
-        await getDb().runAsync("UPDATE orders SET status = 'paid' WHERE id = ?", id);
+        // `closed` et non `paid` : le serveur nous dit seulement que la commande
+        // n'est plus ouverte, pas qu'elle a été encaissée. Inventer un paiement
+        // fausserait toute lecture locale de la caisse.
+        await getDb().runAsync("UPDATE orders SET status = 'closed' WHERE id = ?", id);
     }
 }
 
-/** Outbox : commandes non encore synchronisées. */
+/**
+ * Outbox : commandes non encore synchronisées, hors quarantaine.
+ *
+ * Une commande mise en quarantaine (refusée à répétition par le serveur) est
+ * ÉCARTÉE de la file : sans cela elle serait rejouée toutes les quelques
+ * secondes et, le lot étant traité en une transaction côté serveur, elle
+ * bloquerait indéfiniment l'envoi de toutes les autres. Elle reste en base,
+ * signalée, et repart dès qu'on la rééedite ou qu'on la relance à la main.
+ *
+ * Les plus anciennes d'abord : après une coupure, on remonte dans l'ordre où
+ * le service a réellement eu lieu.
+ */
 export async function getOutbox(): Promise<Order[]> {
-    const orders = await getDb().getAllAsync<any>('SELECT * FROM orders WHERE synced = 0');
+    const orders = await getDb().getAllAsync<any>(
+        `SELECT * FROM orders
+          WHERE synced = 0 AND COALESCE(quarantined, 0) = 0
+            -- Garde-fou : « closed » est un statut local que le serveur refuse.
+            -- L'exclure ici le rend impossible à envoyer par construction.
+            AND status IN ('open','sent','paid','cancelled')
+          ORDER BY updated_at`,
+    );
     const result: Order[] = [];
     for (const o of orders) {
         const lines = await getDb().getAllAsync<any>('SELECT * FROM order_lines WHERE order_id = ? ORDER BY position, rowid', o.id);
         result.push(rowToOrder(o, lines));
     }
     return result;
+}
+
+/**
+ * Compteurs de la pastille de synchro. Requêtes d'agrégat : `getOutbox` charge
+ * chaque commande AVEC toutes ses lignes, ce qui est absurde pour afficher un
+ * nombre — et cela se produisait deux fois par cycle d'envoi.
+ */
+export async function countOutbox(): Promise<number> {
+    const row = await getDb().getFirstAsync<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM orders
+          WHERE synced = 0 AND COALESCE(quarantined, 0) = 0
+            AND status IN ('open','sent','paid','cancelled')`,
+    );
+    return row?.n ?? 0;
+}
+
+export async function countQuarantined(): Promise<number> {
+    const row = await getDb().getFirstAsync<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM orders WHERE quarantined = 1 AND synced = 0',
+    );
+    return row?.n ?? 0;
 }
 
 /** Retire les lignes d'une commande (fusion : elles ont été réaffectées ailleurs). */
@@ -599,7 +679,12 @@ export async function saveRemoteOrder(order: Order): Promise<'applied' | 'skippe
     );
     if (local) {
         if (local.synced === 0) return 'skipped'; // édition locale non poussée -> local gagne
-        if ((order.version ?? 0) < (local.version ?? 0)) return 'skipped'; // STRICTEMENT plus ancien -> ignoré
+        // Égal ou plus ancien -> rien de neuf. L'égalité était réécrite : à
+        // chaque battement, toutes les commandes ouvertes étaient supprimées
+        // puis réinsérées ligne à ligne, pour un résultat identique. Sur vingt
+        // tables de quinze lignes, cela faisait 300 insertions inutiles toutes
+        // les quelques secondes.
+        if ((order.version ?? 0) <= (local.version ?? 0)) return 'skipped';
     }
     await saveOrder(order, true);
     return 'applied';
@@ -612,13 +697,142 @@ export async function markOrdersSynced(ids: string[]): Promise<void> {
 }
 
 /**
- * Après un push accepté : on ADOPTE la version serveur (pour ignorer les échos plus
- * anciens), et on marque synced=1 UNIQUEMENT si la commande n'a pas été ré-éditée
- * entre-temps (updated_at inchangé) — sinon elle reste à repousser.
+ * Après un push accepté : on ADOPTE la version serveur (pour ignorer les échos
+ * plus anciens) et on marque `synced` UNIQUEMENT si la commande n'a pas été
+ * rééditée pendant l'envoi.
+ *
+ * La comparaison porte sur `rev`, compteur monotone incrémenté à chaque
+ * écriture locale. L'ancienne version comparait des horodatages à la
+ * milliseconde : deux modifications dans la même milliseconde donnaient la
+ * même valeur, la seconde était marquée synchronisée sans jamais partir, et
+ * l'article ajouté disparaissait.
  */
-export async function markOrderSynced(id: string, version: number, pushedUpdatedAt: string | null): Promise<void> {
+export async function markOrderSynced(id: string, version: number, pushedRev: number): Promise<void> {
     await getDb().runAsync(
-        'UPDATE orders SET version = ?, synced = CASE WHEN updated_at = ? THEN 1 ELSE synced END WHERE id = ?',
-        version, pushedUpdatedAt, id,
+        `UPDATE orders
+            SET version = ?,
+                synced = CASE WHEN rev = ? THEN 1 ELSE 0 END,
+                push_attempts = 0, push_error = NULL, quarantined = 0
+          WHERE id = ?`,
+        version, pushedRev, id,
     );
+}
+
+/**
+ * Échec d'envoi d'une commande précise.
+ *
+ * `permanent` distingue un REFUS du serveur (4xx : la commande ne passera
+ * jamais en l'état) d'une simple panne réseau. Seul un refus compte les
+ * tentatives : une coupure de cinq minutes ne doit RIEN mettre en quarantaine,
+ * sinon on perdrait des commandes prises hors-ligne — exactement l'inverse du
+ * but recherché.
+ */
+export async function markOrderPushFailed(id: string, message: string, permanent: boolean): Promise<number> {
+    if (!permanent) {
+        await getDb().runAsync('UPDATE orders SET push_error = ? WHERE id = ?', message, id);
+        return 0;
+    }
+    await getDb().runAsync(
+        'UPDATE orders SET push_attempts = COALESCE(push_attempts, 0) + 1, push_error = ? WHERE id = ?',
+        message, id,
+    );
+    const row = await getDb().getFirstAsync<{ push_attempts: number }>(
+        'SELECT push_attempts FROM orders WHERE id = ?', id,
+    );
+    return row?.push_attempts ?? 0;
+}
+
+/** Écarte une commande de la file d'envoi (refusée à répétition). */
+export async function quarantineOrder(id: string): Promise<void> {
+    await getDb().runAsync('UPDATE orders SET quarantined = 1 WHERE id = ?', id);
+}
+
+/** Commandes bloquées, à montrer à l'exploitant : elles ne partiront plus seules. */
+export async function getQuarantinedOrders(): Promise<{ id: string; ticket_number: number | null; total: number; push_error: string | null }[]> {
+    return getDb().getAllAsync(
+        'SELECT id, ticket_number, total, push_error FROM orders WHERE quarantined = 1 AND synced = 0',
+    );
+}
+
+/** Relance manuelle : on lève la quarantaine et on remet le compteur à zéro. */
+export async function releaseQuarantine(): Promise<void> {
+    await getDb().runAsync('UPDATE orders SET quarantined = 0, push_attempts = 0 WHERE quarantined = 1');
+}
+
+// --- File d'impression persistante ---
+
+export interface PrintJobRow {
+    id: string;
+    printer_id: number;
+    printer_name: string;
+    host: string;
+    port: number;
+    label: string;
+    payload: string; // base64 du buffer ESC/POS
+    status: 'pending' | 'failed';
+    attempts: number;
+    last_error: string | null;
+    created_at: string;
+}
+
+/**
+ * Enregistre un travail d'impression AVANT toute tentative.
+ *
+ * C'est ce qui garantit qu'un ticket ne se volatilise pas : coupure réseau,
+ * imprimante éteinte, application fermée en plein service — le travail est en
+ * base et peut être relancé.
+ */
+export async function enqueuePrintJob(job: Omit<PrintJobRow, 'status' | 'attempts' | 'last_error' | 'created_at'>): Promise<void> {
+    await getDb().runAsync(
+        `INSERT OR REPLACE INTO print_jobs (id, printer_id, printer_name, host, port, label, payload, status, attempts, last_error, created_at)
+         VALUES (?,?,?,?,?,?,?,'pending',0,NULL,?)`,
+        job.id, job.printer_id, job.printer_name, job.host, job.port, job.label, job.payload, new Date().toISOString(),
+    );
+}
+
+/** Imprimé : le travail disparaît. */
+export async function deletePrintJob(id: string): Promise<void> {
+    await getDb().runAsync('DELETE FROM print_jobs WHERE id = ?', id);
+}
+
+/** Échec définitif d'une tentative : on CONSERVE le travail pour le relancer. */
+export async function failPrintJob(id: string, message: string): Promise<void> {
+    await getDb().runAsync(
+        "UPDATE print_jobs SET status = 'failed', attempts = COALESCE(attempts, 0) + 1, last_error = ? WHERE id = ?",
+        message, id,
+    );
+}
+
+/** Travaux en échec, du plus ancien au plus récent (ordre du service). */
+export async function getFailedPrintJobs(): Promise<PrintJobRow[]> {
+    return getDb().getAllAsync<PrintJobRow>(
+        "SELECT * FROM print_jobs WHERE status = 'failed' ORDER BY created_at",
+    );
+}
+
+/**
+ * Travaux restés « pending » : l'application s'est arrêtée pendant l'impression.
+ * Relus au démarrage pour être retentés — sans quoi ils dormiraient à jamais.
+ */
+export async function getOrphanPrintJobs(): Promise<PrintJobRow[]> {
+    return getDb().getAllAsync<PrintJobRow>(
+        "SELECT * FROM print_jobs WHERE status = 'pending' ORDER BY created_at",
+    );
+}
+
+export async function countFailedPrintJobs(): Promise<number> {
+    const row = await getDb().getFirstAsync<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM print_jobs WHERE status = 'failed'",
+    );
+    return row?.n ?? 0;
+}
+
+/** Repasse les travaux en échec à « pending » avant une relance manuelle. */
+export async function resetFailedPrintJobs(): Promise<void> {
+    await getDb().runAsync("UPDATE print_jobs SET status = 'pending' WHERE status = 'failed'");
+}
+
+/** Abandon explicite (l'exploitant renonce à ce ticket). */
+export async function discardFailedPrintJobs(): Promise<void> {
+    await getDb().runAsync("DELETE FROM print_jobs WHERE status = 'failed'");
 }

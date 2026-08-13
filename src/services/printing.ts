@@ -18,6 +18,17 @@ import type { Order, OrderLine } from '../types';
  * catégories, imprimantes, réglages) et délègue au module printer.
  */
 
+/** Étiquette lisible d'un ticket, pour la liste des impressions en échec. */
+function ticketLabel(
+    order: Order,
+    meta: { tableLabel: string | null; roomName: string | null },
+    isCancellation: boolean,
+): string {
+    const où = meta.tableLabel ? `Table ${meta.tableLabel}` : 'Comptoir';
+    const quoi = isCancellation ? 'Annulation' : 'Cuisine';
+    return `${quoi} · ${où}${order.ticket_number ? ` · #${order.ticket_number}` : ''}`;
+}
+
 async function orderMeta(order: Order): Promise<{ tableLabel: string | null; roomName: string | null; serverName: string }> {
     const { rooms, users } = useConfig.getState();
     const room = rooms.find((r) => r.id === order.room_id) ?? null;
@@ -50,7 +61,7 @@ export async function printKitchenTickets(order: Order, lines: OrderLine[], isCa
         if (printsPaper) {
             if (!g.printer) { ok = false; continue; }
             const data = buildKitchenTicket(order, g.lines, meta, isCancellation);
-            if (!(await enqueuePrint(g.printer, data))) ok = false;
+            if (!(await enqueuePrint(g.printer, data, ticketLabel(order, meta, isCancellation)))) ok = false;
         }
 
         // Poste à l'écran : l'envoi est porté par la synchro. On arme le repli
@@ -65,7 +76,7 @@ export async function printKitchenTickets(order: Order, lines: OrderLine[], isCa
                 : null;
             if (printer) {
                 const data = buildKitchenTicket(order, g.lines, meta, true);
-                if (!(await enqueuePrint(printer, data))) ok = false;
+                if (!(await enqueuePrint(printer, data, ticketLabel(order, meta, true)))) ok = false;
             }
         }
     }
@@ -112,7 +123,8 @@ export async function printTableMove(
     let ok = true;
     for (const g of groups) {
         const data = buildTableMoveNotice(kind, fromLabel, toLabel, order, serverName);
-        if (!(await enqueuePrint(g.printer, data))) ok = false;
+        const quoi = kind === 'merge' ? 'Fusion' : 'Transfert';
+        if (!(await enqueuePrint(g.printer, data, `${quoi} · ${fromLabel} → ${toLabel}`))) ok = false;
     }
     return ok;
 }
@@ -129,10 +141,11 @@ export async function printBill(order: Order): Promise<boolean> {
     const meta = await orderMeta(order);
     const activeLines = order.lines.filter((l) => !l.voided && l.qty > 0);
 
-    return enqueuePrint(printer, buildBill(order, activeLines, settings, {
-        tableLabel: meta.tableLabel,
-        serverName: meta.serverName,
-    }));
+    return enqueuePrint(
+        printer,
+        buildBill(order, activeLines, settings, { tableLabel: meta.tableLabel, serverName: meta.serverName }),
+        `Addition · ${meta.tableLabel ? `Table ${meta.tableLabel}` : 'Comptoir'}`,
+    );
 }
 
 /** Imprime le ticket de caisse sur l'imprimante receipt + ouvre le tiroir si cash. */
@@ -146,12 +159,12 @@ export async function printCustomerReceipt(order: Order): Promise<boolean> {
     const meta = await orderMeta(order);
     const activeLines = order.lines.filter((l) => !l.voided && l.qty > 0);
     const data = buildReceipt(order, activeLines, settings, { tableLabel: meta.tableLabel });
-    const ok = await enqueuePrint(printer, data);
+    const ok = await enqueuePrint(printer, data, `Ticket client${order.ticket_number ? ` #${order.ticket_number}` : ''}`);
 
     // Ouverture du tiroir-caisse si un paiement cash a eu lieu.
     if (order.payments.some((p) => p.method === 'cash')) {
         const kick = new EscPosBuilder().init().kickDrawer().build();
-        await enqueuePrint(printer, kick);
+        await enqueuePrint(printer, kick, 'Tiroir-caisse');
     }
     return ok;
 }

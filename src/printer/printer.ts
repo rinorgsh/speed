@@ -3,6 +3,7 @@ import TcpSocket from 'react-native-tcp-socket';
 import { PRINTING } from '../config';
 import type { Order, OrderLine, PrepStation, Printer, Product, Category, SelectedOption, Tax } from '../types';
 import { EscPosBuilder } from './escpos';
+import * as db from '../db/database';
 import { t } from '../i18n';
 
 /**
@@ -19,6 +20,7 @@ interface PrintJob {
     id: string;
     printer: Printer;
     data: Buffer;
+    label: string;
     attempts: number;
     resolve: (ok: boolean) => void;
 }
@@ -26,6 +28,21 @@ interface PrintJob {
 const queue: PrintJob[] = [];
 let processing = false;
 let jobCounter = 0;
+
+/** Écouteurs du nombre de tickets en échec (alimente l'indicateur à l'écran). */
+type FailedListener = (n: number) => void;
+const failedListeners = new Set<FailedListener>();
+
+export function onFailedPrintsChange(listener: FailedListener): () => void {
+    failedListeners.add(listener);
+    void notifyFailed();
+    return () => failedListeners.delete(listener);
+}
+
+async function notifyFailed(): Promise<void> {
+    const n = await db.countFailedPrintJobs().catch(() => 0);
+    failedListeners.forEach((l) => l(n));
+}
 
 /** Envoie un buffer brut à une imprimante via TCP 9100 (timeout géré). */
 function sendRaw(host: string, port: number, data: Buffer): Promise<void> {
@@ -63,11 +80,21 @@ async function processQueue(): Promise<void> {
         try {
             await sendRaw(job.printer.ip_address, job.printer.port || PRINTING.port, job.data);
             queue.shift();
+            // Imprimé pour de bon : le travail disparaît de la base.
+            await db.deletePrintJob(job.id).catch(() => {});
             job.resolve(true);
-        } catch {
+        } catch (e: any) {
             job.attempts += 1;
             if (job.attempts >= PRINTING.maxRetries) {
                 queue.shift();
+                /*
+                 * Le travail N'EST PAS PERDU : il est conservé en base, marqué
+                 * en échec, et relançable depuis l'écran des salles. Un ticket
+                 * qui ne sort pas est un plat qui ne sera pas préparé — le
+                 * jeter après trois tentatives revenait à effacer une commande.
+                 */
+                await db.failPrintJob(job.id, e?.message ?? 'Imprimante injoignable').catch(() => {});
+                void notifyFailed();
                 job.resolve(false);
             } else {
                 await new Promise((r) => setTimeout(r, 800 * job.attempts)); // backoff
@@ -77,12 +104,95 @@ async function processQueue(): Promise<void> {
     processing = false;
 }
 
-/** Met un job en file et renvoie une promesse (true = imprimé, false = échec après retries). */
-export function enqueuePrint(printer: Printer, data: Buffer): Promise<boolean> {
+/**
+ * Met un travail en file APRÈS l'avoir écrit en base, et renvoie une promesse
+ * (true = imprimé, false = échec après tentatives — le travail reste relançable).
+ */
+export function enqueuePrint(printer: Printer, data: Buffer, label = 'Ticket'): Promise<boolean> {
+    const id = `job_${Date.now()}_${++jobCounter}`;
+    const port = printer.port || PRINTING.port;
+
     return new Promise((resolve) => {
-        queue.push({ id: `job_${++jobCounter}`, printer, data, attempts: 0, resolve });
+        void db.enqueuePrintJob({
+            id,
+            printer_id: printer.id,
+            printer_name: printer.name,
+            host: printer.ip_address,
+            port,
+            label,
+            payload: data.toString('base64'),
+        })
+            .catch(() => {}) // une base indisponible ne doit pas empêcher d'imprimer
+            .finally(() => {
+                queue.push({ id, printer, data, label, attempts: 0, resolve });
+                void processQueue();
+            });
+    });
+}
+
+/** Reconstruit une imprimante depuis un travail stocké (l'IP est figée dessus). */
+function printerOf(job: db.PrintJobRow): Printer {
+    return {
+        id: job.printer_id,
+        name: job.printer_name,
+        ip_address: job.host,
+        port: job.port,
+        role: 'order',
+        active: true,
+    };
+}
+
+/** Remet en file un travail déjà stocké (relance manuelle ou reprise au démarrage). */
+function requeueStored(job: db.PrintJobRow): Promise<boolean> {
+    return new Promise((resolve) => {
+        queue.push({
+            id: job.id,
+            printer: printerOf(job),
+            data: Buffer.from(job.payload, 'base64'),
+            label: job.label,
+            attempts: 0,
+            resolve,
+        });
         void processQueue();
     });
+}
+
+/**
+ * Relance tous les tickets en échec. Renvoie le nombre effectivement imprimé.
+ * Appelé depuis le menu des salles, quand l'imprimante est de nouveau joignable.
+ */
+export async function retryFailedPrints(): Promise<{ ok: number; failed: number }> {
+    const jobs = await db.getFailedPrintJobs();
+    if (!jobs.length) return { ok: 0, failed: 0 };
+
+    await db.resetFailedPrintJobs();
+    const results = await Promise.all(jobs.map((j) => requeueStored(j)));
+    await notifyFailed();
+
+    const ok = results.filter(Boolean).length;
+    return { ok, failed: results.length - ok };
+}
+
+/** Nombre de tickets en attente de relance. */
+export function countFailedPrints(): Promise<number> {
+    return db.countFailedPrintJobs();
+}
+
+/** L'exploitant renonce aux tickets en échec (ils ont été refaits à la main). */
+export async function discardFailedPrints(): Promise<void> {
+    await db.discardFailedPrintJobs();
+    await notifyFailed();
+}
+
+/**
+ * Reprise au démarrage : les travaux restés « pending » viennent d'une
+ * application arrêtée en pleine impression. On les retente une fois, puis ils
+ * basculeront en échec s'ils ne passent toujours pas.
+ */
+export async function resumePendingPrints(): Promise<void> {
+    const orphans = await db.getOrphanPrintJobs().catch(() => []);
+    for (const job of orphans) void requeueStored(job);
+    await notifyFailed();
 }
 
 // --- Construction des tickets ---
