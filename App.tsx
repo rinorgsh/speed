@@ -6,8 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { useAuth } from './src/store/useAuth';
 import { useConfig } from './src/store/useConfig';
-import { useRealtime } from './src/store/useRealtime';
-import { connectRealtime, disconnectRealtime } from './src/services/realtime';
+import { connectRealtime, disconnectRealtime, realtimeState } from './src/services/realtime';
 import { startSyncLoop, stopSyncLoop } from './src/services/sync';
 import { useOTAUpdate } from './src/hooks/useOTAUpdate';
 import { useCart } from './src/store/useCart';
@@ -61,15 +60,31 @@ export default function App() {
         }
     }, [enrolled, profileId]);
 
-    // Retour au premier plan : on resynchronise TOUJOURS la config (filet de
-    // sécurité absolu contre tout décalage) et on relance le temps réel s'il a
-    // été coupé en arrière-plan. Garantit qu'on n'est jamais en retard.
+    /*
+     * Retour au premier plan : on remet TOUT en marche, sans condition.
+     *
+     * Le système suspend le fil JavaScript en arrière-plan. Au réveil, ni le
+     * `setInterval` de la boucle de synchro ni la socket temps réel ne sont
+     * garantis vivants — et rien ne les ressuscitait : la boucle n'était
+     * relancée qu'au montage du composant, donc au démarrage de l'application.
+     * D'où l'incident constaté en service : plus rien ne remontait ni ne
+     * descendait, et seul un redémarrage complet réparait.
+     *
+     * `startSyncLoop` commence par arrêter la boucle existante : l'appeler à
+     * chaque réveil est sans risque et ne peut pas en faire tourner deux.
+     */
     useEffect(() => {
         if (!enrolled) return;
         const sub = AppState.addEventListener('change', (state) => {
             if (state !== 'active') return;
+
+            if (profileId) startSyncLoop();
             void useConfig.getState().syncFromServer();
-            if (!useRealtime.getState().connected && apiUrl && realtimeConfig && profileId) {
+
+            // On interroge la socket elle-même, pas notre drapeau : c'est lui
+            // qui pouvait mentir et bloquer toute reconnexion.
+            if (realtimeState() !== 'connected' && apiUrl && realtimeConfig && profileId) {
+                console.log('[realtime] réveil : socket', realtimeState(), '-> reconnexion');
                 connectRealtime(realtimeConfig, apiUrl, profileId);
             }
         });

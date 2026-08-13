@@ -75,12 +75,22 @@ export function connectRealtime(config: RealtimeConfig | null, apiUrl: string, p
             }
             firstConnect = false;
         });
-        pusher.connection.bind('disconnected', () => {
-            console.log('[realtime] ❌ déconnecté');
-            useRealtime.getState().setConnected(false);
-        });
         pusher.connection.bind('error', (e: any) => console.log('[realtime] erreur connexion', e?.error ?? e));
-        pusher.connection.bind('state_change', (s: any) => console.log('[realtime] état', s?.previous, '->', s?.current));
+        /*
+         * Le drapeau « connecté » se déduit de l'ÉTAT COURANT, jamais du seul
+         * event `disconnected`.
+         *
+         * pusher-js passe aussi par `unavailable`, `failed` et `connecting` —
+         * états fréquents sur mobile (changement de réseau, mise en veille).
+         * En n'écoutant que `disconnected`, l'application se croyait connectée
+         * alors que la socket était morte : le retour au premier plan, qui ne
+         * reconnecte que si le drapeau est à faux, ne reconnectait donc jamais.
+         * L'appareil restait sourd jusqu'au redémarrage complet.
+         */
+        pusher.connection.bind('state_change', (s: any) => {
+            console.log('[realtime] état', s?.previous, '->', s?.current);
+            useRealtime.getState().setConnected(s?.current === 'connected');
+        });
 
         const cfg = useConfig.getState();
         // Canal scopé par profil : les events (produits, tables, commandes) d'un
@@ -138,6 +148,11 @@ export function connectRealtime(config: RealtimeConfig | null, apiUrl: string, p
         pusher = null;
         useRealtime.getState().setConnected(false);
     }
+}
+
+/** État réel de la socket, source de vérité pour décider d'une reconnexion. */
+export function realtimeState(): string {
+    return pusher?.connection?.state ?? 'disconnected';
 }
 
 export function disconnectRealtime(): void {
