@@ -81,7 +81,7 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
       opened_at TEXT, paid_at TEXT, payments TEXT, synced INTEGER DEFAULT 0, updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS order_lines (
-      id TEXT PRIMARY KEY, order_id TEXT, product_id INTEGER, name_snapshot TEXT, qty REAL,
+      id TEXT PRIMARY KEY, order_id TEXT, position INTEGER DEFAULT 0, product_id INTEGER, name_snapshot TEXT, qty REAL,
       unit_price_snapshot REAL, tax_rate_snapshot REAL, price_includes_tax_snapshot INTEGER,
       options_snapshot TEXT, note TEXT, line_total REAL, sent_at TEXT, sent_qty REAL DEFAULT 0,
       voided INTEGER DEFAULT 0, void_reason TEXT, voided_by INTEGER
@@ -124,6 +124,8 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
         'ALTER TABLE orders ADD COLUMN discount_by INTEGER',
         // Postes de préparation (routage cuisine papier/écran).
         'ALTER TABLE categories ADD COLUMN station_id INTEGER',
+        // Rang de la ligne au ticket : sans lui, l'ordre suivrait l'UUID.
+        'ALTER TABLE order_lines ADD COLUMN position INTEGER DEFAULT 0',
     ]) {
         await d.execAsync(sql).catch(() => {});
     }
@@ -405,12 +407,14 @@ export async function saveOrder(order: Order, synced = false): Promise<void> {
             order.opened_at, order.paid_at, JSON.stringify(order.payments ?? []), synced ? 1 : 0, new Date().toISOString(),
         );
         await txn.runAsync('DELETE FROM order_lines WHERE order_id = ?', order.id);
-        for (const l of order.lines) {
+        for (const [i, l] of order.lines.entries()) {
             await txn.runAsync(
                 `INSERT INTO order_lines
-         (id, order_id, product_id, name_snapshot, qty, unit_price_snapshot, tax_rate_snapshot, price_includes_tax_snapshot, options_snapshot, note, line_total, sent_at, sent_qty, voided, void_reason, voided_by)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-                l.id, l.order_id, l.product_id, l.name_snapshot, l.qty, l.unit_price_snapshot,
+         (id, order_id, position, product_id, name_snapshot, qty, unit_price_snapshot, tax_rate_snapshot, price_includes_tax_snapshot, options_snapshot, note, line_total, sent_at, sent_qty, voided, void_reason, voided_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                // Repli sur le rang du tableau : une ligne créée avant cette
+                // version n'a pas encore de position.
+                l.id, l.order_id, l.position ?? i + 1, l.product_id, l.name_snapshot, l.qty, l.unit_price_snapshot,
                 l.tax_rate_snapshot, l.price_includes_tax_snapshot ? 1 : 0, JSON.stringify(l.options_snapshot ?? []),
                 l.note, l.line_total, l.sent_at, l.sent_qty ?? 0, l.voided ? 1 : 0, l.void_reason, l.voided_by,
             );
@@ -435,7 +439,7 @@ function rowToOrder(o: any, lines: any[]): Order {
 export async function getOrder(id: string): Promise<Order | null> {
     const o = await getDb().getFirstAsync<any>('SELECT * FROM orders WHERE id = ?', id);
     if (!o) return null;
-    const lines = await getDb().getAllAsync<any>('SELECT * FROM order_lines WHERE order_id = ?', id);
+    const lines = await getDb().getAllAsync<any>('SELECT * FROM order_lines WHERE order_id = ? ORDER BY position, rowid', id);
     return rowToOrder(o, lines);
 }
 
@@ -446,7 +450,7 @@ export async function getOpenOrderForTable(tableId: number): Promise<Order | nul
         tableId,
     );
     if (!o) return null;
-    const lines = await getDb().getAllAsync<any>('SELECT * FROM order_lines WHERE order_id = ?', o.id);
+    const lines = await getDb().getAllAsync<any>('SELECT * FROM order_lines WHERE order_id = ? ORDER BY position, rowid', o.id);
     return rowToOrder(o, lines);
 }
 
@@ -464,7 +468,7 @@ export async function getOpenCounterOrder(sessionId: number, profileId: number |
         sessionId, profileId, profileId,
     );
     if (!o) return null;
-    const lines = await getDb().getAllAsync<any>('SELECT * FROM order_lines WHERE order_id = ?', o.id);
+    const lines = await getDb().getAllAsync<any>('SELECT * FROM order_lines WHERE order_id = ? ORDER BY position, rowid', o.id);
     const order = rowToOrder(o, lines);
 
     // Une commande vide n'a rien à reprendre : autant en ouvrir une neuve.
@@ -558,7 +562,7 @@ export async function getOutbox(): Promise<Order[]> {
     const orders = await getDb().getAllAsync<any>('SELECT * FROM orders WHERE synced = 0');
     const result: Order[] = [];
     for (const o of orders) {
-        const lines = await getDb().getAllAsync<any>('SELECT * FROM order_lines WHERE order_id = ?', o.id);
+        const lines = await getDb().getAllAsync<any>('SELECT * FROM order_lines WHERE order_id = ? ORDER BY position, rowid', o.id);
         result.push(rowToOrder(o, lines));
     }
     return result;

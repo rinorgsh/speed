@@ -34,7 +34,10 @@ export function buildSubticket(parent: Order, assignments: SplitAssignment[], me
                 line_total: lineTotal(src.unit_price_snapshot, optionsDelta(src.options_snapshot), a.qty),
             } as OrderLine;
         })
-        .filter((l): l is OrderLine => l !== null);
+        .filter((l): l is OrderLine => l !== null)
+        // Sous-ticket = document neuf : on renumérote plutôt que d'hériter des
+        // positions de la mère, forcément trouées après un partage.
+        .map((l, i) => ({ ...l, position: i + 1 }));
 
     const totals = computeOrderTotals(lines);
 

@@ -172,6 +172,9 @@ export const useCart = create<CartState>((set, get) => ({
             lines = [...order.lines, {
                 id: uuidv4(),
                 order_id: order.id,
+                // Toujours en fin de ticket. Le rang est porté explicitement :
+                // l'identifiant étant un UUID, aucun tri implicite ne tient.
+                position: order.lines.reduce((max, l) => Math.max(max, l.position ?? 0), 0) + 1,
                 product_id: product.id,
                 name_snapshot: product.name,
                 qty,

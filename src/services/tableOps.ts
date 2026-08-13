@@ -74,7 +74,11 @@ export async function mergeTables(source: Table, target: Table): Promise<MoveOut
 
     // Les lignes gardent leur id ET leur sent_qty : ce qui est déjà parti en
     // cuisine ne sera jamais réimprimé après la fusion.
-    const movedLines = from.lines.map((l) => ({ ...l, order_id: into.id }));
+    // Les positions repartent à la suite de celles de la table d'accueil :
+    // conservées telles quelles, les deux séries se chevaucheraient et le
+    // ticket fusionné entrelacerait les deux commandes.
+    const offset = into.lines.reduce((max, l) => Math.max(max, l.position ?? 0), 0);
+    const movedLines = from.lines.map((l, i) => ({ ...l, order_id: into.id, position: offset + i + 1 }));
     const mergedLines = [...into.lines, ...movedLines];
     const totals = computeOrderTotals(mergedLines);
 

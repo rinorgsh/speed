@@ -190,8 +190,11 @@ function normalizeOrder(o: any): Order {
             ? o.payments.map((p: any) => ({ method: p.method, amount: Number(p.amount) }))
             : [],
         lines: Array.isArray(o.lines)
-            ? o.lines.map((l: any) => ({
+            ? o.lines.map((l: any, i: number) => ({
                 ...l,
+                // Repli sur le rang reçu : un serveur pas encore migré n'envoie
+                // pas encore ce champ.
+                position: Number(l.position ?? i + 1),
                 qty: Number(l.qty),
                 sent_qty: Number(l.sent_qty ?? 0),
                 unit_price_snapshot: Number(l.unit_price_snapshot),
@@ -200,7 +203,7 @@ function normalizeOrder(o: any): Order {
                 price_includes_tax_snapshot: !!l.price_includes_tax_snapshot,
                 voided: !!l.voided,
                 options_snapshot: Array.isArray(l.options_snapshot) ? l.options_snapshot : [],
-            }))
+            })).sort((a: any, b: any) => a.position - b.position)
             : [],
     };
 }

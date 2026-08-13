@@ -222,6 +222,13 @@ export interface SelectedOption {
 export interface OrderLine {
     id: string;
     order_id: string;
+    /**
+     * Rang de la ligne dans le ticket. Indispensable : l'identifiant est un
+     * UUID, donc sans position le serveur renverrait les lignes dans un ordre
+     * alphabétique d'UUID et l'article qu'on vient d'ajouter changerait de
+     * place sous les yeux du serveur.
+     */
+    position: number;
     product_id: number | null;
     name_snapshot: string;
     qty: number;
