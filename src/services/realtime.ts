@@ -122,6 +122,13 @@ export function connectRealtime(config: RealtimeConfig | null, apiUrl: string, p
             console.log('[realtime] ⬇ CategoriesReordered');
             void useConfig.getState().syncFromServer();
         });
+        // Groupes d'options modifiés : le produit connaît ses `option_group_ids`,
+        // mais sans le contenu du groupe il s'ajouterait au panier sans proposer
+        // ses options. On resynchronise la config.
+        channel.bind('OptionsUpdated', () => {
+            console.log('[realtime] ⬇ OptionsUpdated');
+            void useConfig.getState().syncFromServer();
+        });
         // Notes rapides modifiées dans l'admin : même traitement, la liste est
         // trop petite pour mériter un payload dédié.
         channel.bind('QuickNotesUpdated', () => {
