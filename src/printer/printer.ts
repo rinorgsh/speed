@@ -238,10 +238,46 @@ function optionLines(options: SelectedOption[], withPrice: boolean): string[] {
     }
 
     for (const [group, labels] of grouped) {
-        rendered.push(`   ${group} : ${labels.join(', ')}`);
+        rendered.push(...wrap(`   ${group} : ${labels.join(', ')}`));
     }
 
     return rendered;
+}
+
+/** Largeur utile d'un rouleau 80 mm en corps normal. */
+const COLS = 48;
+
+/**
+ * Coupe une ligne trop longue à la fin d'un mot, en alignant la suite sous le
+ * premier caractère. Sans cela, « SALADE : Tout, Salade, Maïs, Carotte, Tomate,
+ * Concombre, Oignon » repartait en marge à gauche au milieu d'un mot et se
+ * confondait avec le groupe suivant.
+ */
+function wrap(line: string): string[] {
+    if (line.length <= COLS) return [line];
+
+    // L'indentation de tête est CONSERVÉE : la découper avec le reste la ferait
+    // disparaître, et la ligne repartirait en marge — exactement le défaut qu'on
+    // cherche à corriger.
+    const lead = line.match(/^ */)?.[0] ?? '';
+    const words = line.slice(lead.length).split(' ').filter(Boolean);
+    const hanging = lead + '  '; // la suite est décalée : elle appartient visiblement à la ligne du dessus
+
+    const out: string[] = [];
+    let current = lead;
+
+    for (const word of words) {
+        const candidate = current.trim() ? `${current} ${word}` : current + word;
+        if (candidate.length > COLS && current.trim()) {
+            out.push(current);
+            current = hanging + word;
+        } else {
+            current = candidate;
+        }
+    }
+    if (current.trim()) out.push(current);
+
+    return out;
 }
 
 /** Ticket cuisine/bar : gros texte, SANS prix. isCancellation = ticket d'annulation. */
@@ -289,9 +325,25 @@ export function buildKitchenTicket(
     for (const l of lines) {
         const prefix = isCancellation ? 'ANNULER ' : '';
         b.size(2, 2).bold(true).line(`${prefix}${formatQty(l.qty)}x ${l.name_snapshot}`);
-        b.size(1, 1).bold(false);
+
+        /*
+         * Options et note en DOUBLE HAUTEUR, en gras.
+         *
+         * Sur un ticket cuisine, elles ne sont pas un détail du produit : ce
+         * sont LA consigne de préparation. « Sauce : andalouse » décide de ce
+         * qu'on met dans le sandwich, au même titre que le nom du plat. Les
+         * imprimer en corps normal sous un titre deux fois plus gros revenait
+         * à hiérarchiser à l'envers, et obligeait à se pencher sur le papier.
+         *
+         * Double hauteur SEULEMENT, pas double largeur : la ligne conserve ses
+         * 48 colonnes, donc « SALADE : Tomate, Concombre, Oignon » tient sans
+         * repasser à la ligne.
+         */
+        b.size(1, 2).bold(true);
         for (const ligne of optionLines(l.options_snapshot, false)) b.line(ligne);
         if (l.note) b.line(`   ** ${l.note}`);
+
+        b.size(1, 1).bold(false);
         b.feed();
     }
 
