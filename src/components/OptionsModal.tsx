@@ -66,8 +66,12 @@ export function OptionsModal({
 
     return (
         <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-            <View style={styles.backdrop}>
-                <View style={styles.sheet}>
+            {/* Appui hors de la feuille = abandon, comme le bouton Annuler. C'est
+                le réflexe de tout le monde, et le même motif que les autres
+                modales de l'application. Le `stopPropagation` intérieur évite
+                qu'un appui sur une option referme la feuille. */}
+            <Pressable style={styles.backdrop} onPress={onClose}>
+                <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
                     <Text style={styles.title}>{product.name}</Text>
                     <ScrollView style={{ maxHeight: 360 }}>
                         {groups.map((g) => (
@@ -109,8 +113,8 @@ export function OptionsModal({
                         <Button label="Annuler" variant="secondary" onPress={onClose} style={{ flex: 1 }} />
                         <Button label="Ajouter" onPress={confirm} disabled={!valid} style={{ flex: 1 }} />
                     </View>
-                </View>
-            </View>
+                </Pressable>
+            </Pressable>
         </Modal>
     );
 }

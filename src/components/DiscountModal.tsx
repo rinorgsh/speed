@@ -45,7 +45,9 @@ export function DiscountModal({
 
     return (
         <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} onShow={reset}>
-            <View style={styles.backdrop}>
+            {/* Même motif que les autres modales : appui hors de la feuille = abandon. */}
+            <Pressable style={styles.backdrop} onPress={onClose}>
+                <Pressable style={{ width: '100%' }} onPress={(e) => e.stopPropagation()}>
                 <View style={styles.sheet}>
                     <View style={styles.header}>
                         <Text style={styles.title}>Remise sur l'addition</Text>
@@ -118,7 +120,8 @@ export function DiscountModal({
                         </View>
                     </ScrollView>
                 </View>
-            </View>
+                </Pressable>
+            </Pressable>
         </Modal>
     );
 }
