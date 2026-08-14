@@ -10,6 +10,7 @@
     "bcryptjs": "^3.0.3",
     "buffer": "^6.0.3",
     "expo": "~56.0.12",
+    "expo-screen-orientation": "~56.0.5",
     "expo-secure-store": "~56.0.4",
     "expo-sqlite": "~56.0.5",
     "expo-status-bar": "~56.0.4",

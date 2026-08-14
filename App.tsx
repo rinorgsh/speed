@@ -9,6 +9,7 @@ import { useConfig } from './src/store/useConfig';
 import { connectRealtime, disconnectRealtime, realtimeState } from './src/services/realtime';
 import { startSyncLoop, stopSyncLoop } from './src/services/sync';
 import { onFailedPrintsChange, resumePendingPrints } from './src/printer/printer';
+import { applyOrientationPolicy } from './src/services/orientation';
 import { useRealtime } from './src/store/useRealtime';
 import { useOTAUpdate } from './src/hooks/useOTAUpdate';
 import { useCart } from './src/store/useCart';
@@ -39,6 +40,13 @@ export default function App() {
             }
         })();
     }, [init]);
+
+    // Orientation : téléphone verrouillé en portrait, tablette libre. Appliqué
+    // une seule fois, avant même l'enrôlement — l'écran de saisie de l'URL doit
+    // déjà se présenter correctement.
+    useEffect(() => {
+        void applyOrientationPolicy();
+    }, []);
 
     // Charge la config en cache une fois l'appareil enrôlé.
     useEffect(() => {

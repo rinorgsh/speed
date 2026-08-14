@@ -35,6 +35,7 @@
     },
     "plugins": [
       "expo-sqlite",
+      "expo-screen-orientation",
       "expo-secure-store",
       "expo-updates"
     ],

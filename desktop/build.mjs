@@ -75,12 +75,13 @@ const options = {
     alias: {
         // Le cœur : les primitives d'interface passent par react-native-web.
         'react-native': 'react-native-web',
-        // Les quatre modules natifs, remplacés par leurs équivalents bureau.
+        // Les modules natifs, remplacés par leurs équivalents bureau.
         'react-native-tcp-socket': shim('tcp-socket.ts'),
         'expo-sqlite': shim('sqlite.ts'),
         'expo-secure-store': shim('secure-store.ts'),
         'expo-updates': shim('updates.ts'),
         'expo-status-bar': shim('status-bar.tsx'),
+        'expo-screen-orientation': shim('screen-orientation.ts'),
         // Même jeu d'icônes, rendu en DOM au lieu de SVG natif.
         'lucide-react-native': shim('icons.ts'),
     },
