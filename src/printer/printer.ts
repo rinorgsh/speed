@@ -4,6 +4,7 @@ import { PRINTING } from '../config';
 import type { Order, OrderLine, PrepStation, Printer, Product, Category, SelectedOption, Tax } from '../types';
 import { EscPosBuilder } from './escpos';
 import * as db from '../db/database';
+import { guard } from '../utils/guard';
 import { t } from '../i18n';
 
 /**
@@ -35,13 +36,20 @@ const failedListeners = new Set<FailedListener>();
 
 export function onFailedPrintsChange(listener: FailedListener): () => void {
     failedListeners.add(listener);
-    void notifyFailed();
+    guard('compteur d\'impressions', notifyFailed);
     return () => failedListeners.delete(listener);
 }
 
 async function notifyFailed(): Promise<void> {
     const n = await db.countFailedPrintJobs().catch(() => 0);
-    failedListeners.forEach((l) => l(n));
+    // Un écouteur fautif ne doit pas emporter la file d'impression avec lui.
+    failedListeners.forEach((l) => {
+        try {
+            l(n);
+        } catch (e: any) {
+            console.log('[impression] écouteur en erreur :', e?.message ?? e);
+        }
+    });
 }
 
 /** Envoie un buffer brut à une imprimante via TCP 9100 (timeout géré). */
@@ -94,7 +102,7 @@ async function processQueue(): Promise<void> {
                  * jeter après trois tentatives revenait à effacer une commande.
                  */
                 await db.failPrintJob(job.id, e?.message ?? 'Imprimante injoignable').catch(() => {});
-                void notifyFailed();
+                guard('compteur d\'impressions', notifyFailed);
                 job.resolve(false);
             } else {
                 await new Promise((r) => setTimeout(r, 800 * job.attempts)); // backoff
@@ -125,7 +133,7 @@ export function enqueuePrint(printer: Printer, data: Buffer, label = 'Ticket'): 
             .catch(() => {}) // une base indisponible ne doit pas empêcher d'imprimer
             .finally(() => {
                 queue.push({ id, printer, data, label, attempts: 0, resolve });
-                void processQueue();
+                guard('file d\'impression', processQueue);
             });
     });
 }
@@ -153,7 +161,7 @@ function requeueStored(job: db.PrintJobRow): Promise<boolean> {
             attempts: 0,
             resolve,
         });
-        void processQueue();
+        guard('file d\'impression', processQueue);
     });
 }
 
@@ -191,7 +199,7 @@ export async function discardFailedPrints(): Promise<void> {
  */
 export async function resumePendingPrints(): Promise<void> {
     const orphans = await db.getOrphanPrintJobs().catch(() => []);
-    for (const job of orphans) void requeueStored(job);
+    for (const job of orphans) guard('reprise d\'impression', () => requeueStored(job));
     await notifyFailed();
 }
 
