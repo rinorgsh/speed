@@ -3,6 +3,7 @@ import { fetchOpenOrders, fetchTableOrder, pushOrders } from '../api/client';
 import { useAuth } from '../store/useAuth';
 import { useCart } from '../store/useCart';
 import { useRealtime } from '../store/useRealtime';
+import { guard } from '../utils/guard';
 import type { Order } from '../types';
 
 /**
@@ -153,7 +154,7 @@ export function schedulePush(delayMs = 400): void {
     if (pushTimer) clearTimeout(pushTimer);
     pushTimer = setTimeout(() => {
         pushTimer = null;
-        void flushOutbox();
+        guard('push débouncé', flushOutbox);
     }, delayMs);
 }
 

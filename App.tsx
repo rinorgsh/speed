@@ -9,6 +9,8 @@ import { useConfig } from './src/store/useConfig';
 import { connectRealtime, disconnectRealtime, realtimeState } from './src/services/realtime';
 import { startSyncLoop, stopSyncLoop } from './src/services/sync';
 import { onFailedPrintsChange, resumePendingPrints } from './src/printer/printer';
+import { CrashGuard } from './src/components/CrashGuard';
+import { guard } from './src/utils/guard';
 import { applyOrientationPolicy } from './src/services/orientation';
 import { useRealtime } from './src/store/useRealtime';
 import { useOTAUpdate } from './src/hooks/useOTAUpdate';
@@ -45,12 +47,12 @@ export default function App() {
     // une seule fois, avant même l'enrôlement — l'écran de saisie de l'URL doit
     // déjà se présenter correctement.
     useEffect(() => {
-        void applyOrientationPolicy();
+        guard('orientation', applyOrientationPolicy);
     }, []);
 
     // Charge la config en cache une fois l'appareil enrôlé.
     useEffect(() => {
-        if (enrolled) void loadFromCache();
+        if (enrolled) guard('cache', loadFromCache);
     }, [enrolled, loadFromCache]);
 
     /*
@@ -62,7 +64,7 @@ export default function App() {
     useEffect(() => {
         if (!enrolled) return;
         const off = onFailedPrintsChange((n) => useRealtime.getState().setFailedPrints(n));
-        void resumePendingPrints();
+        guard('impressions en attente', resumePendingPrints);
         return off;
     }, [enrolled]);
 
@@ -102,7 +104,7 @@ export default function App() {
             if (state !== 'active') return;
 
             if (profileId) startSyncLoop();
-            void useConfig.getState().syncFromServer();
+            guard('synchro au réveil', () => useConfig.getState().syncFromServer());
 
             // On interroge la socket elle-même, pas notre drapeau : c'est lui
             // qui pouvait mentir et bloquer toute reconnexion.
@@ -136,9 +138,11 @@ export default function App() {
     return (
         <SafeAreaProvider>
             <StatusBar style="light" />
-            <NavigationContainer theme={navTheme}>
-                <RootNavigator />
-            </NavigationContainer>
+            <CrashGuard>
+                <NavigationContainer theme={navTheme}>
+                    <RootNavigator />
+                </NavigationContainer>
+            </CrashGuard>
         </SafeAreaProvider>
     );
 }

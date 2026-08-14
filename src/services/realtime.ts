@@ -1,6 +1,7 @@
 import * as PusherNS from 'pusher-js';
 import { useAuth } from '../store/useAuth';
 import { useConfig } from '../store/useConfig';
+import { guard } from '../utils/guard';
 import { useRealtime } from '../store/useRealtime';
 import { pullOpenOrders, receiveRemoteOrder } from './sync';
 import { markScreenAcknowledged } from './kds';
@@ -70,8 +71,8 @@ export function connectRealtime(config: RealtimeConfig | null, apiUrl: string, p
             // la config pour rattraper les events manqués -> cohérence garantie.
             if (!firstConnect) {
                 console.log('[realtime] reconnexion -> resync config + commandes');
-                void useConfig.getState().syncFromServer();
-                void pullOpenOrders(); // rattrape les commandes changées pendant la coupure
+                guard('resync après reconnexion', () => useConfig.getState().syncFromServer());
+                guard('rattrapage des commandes', pullOpenOrders);
             }
             firstConnect = false;
         });
@@ -102,43 +103,43 @@ export function connectRealtime(config: RealtimeConfig | null, apiUrl: string, p
         // Noms d'events = broadcastAs() côté Laravel (sans namespace ni point).
         channel.bind('ProductUpdated', (p: Product) => {
             console.log('[realtime] ⬇ ProductUpdated', p?.id);
-            void cfg.applyProductUpdate(normalizeProduct(p));
+            guard('ProductUpdated', () => cfg.applyProductUpdate(normalizeProduct(p)));
         });
         channel.bind('ProductAvailabilityChanged', (e: { id: number; available: boolean }) => {
             console.log('[realtime] ⬇ ProductAvailabilityChanged', e);
-            void cfg.applyAvailability(e.id, !!e.available);
+            guard('ProductAvailabilityChanged', () => cfg.applyAvailability(e.id, !!e.available));
         });
-        channel.bind('CategoryUpdated', (c: Category) => void cfg.applyCategoryUpdate(c));
+        channel.bind('CategoryUpdated', (c: Category) => guard('CategoryUpdated', () => cfg.applyCategoryUpdate(c)));
         // Plan de salle réenregistré dans l'admin : on resynchronise la config pour
         // adopter la nouvelle disposition sans redémarrer l'app.
         channel.bind('RoomPlanUpdated', () => {
             console.log('[realtime] ⬇ RoomPlanUpdated');
-            void useConfig.getState().syncFromServer();
+            guard('resync config', () => useConfig.getState().syncFromServer());
         });
         // Ordre des catégories changé dans l'admin (glisser-déposer) : un seul
         // événement pour tout un niveau, on resynchronise plutôt que de recevoir
         // quinze payloads.
         channel.bind('CategoriesReordered', () => {
             console.log('[realtime] ⬇ CategoriesReordered');
-            void useConfig.getState().syncFromServer();
+            guard('resync config', () => useConfig.getState().syncFromServer());
         });
         // Groupes d'options modifiés : le produit connaît ses `option_group_ids`,
         // mais sans le contenu du groupe il s'ajouterait au panier sans proposer
         // ses options. On resynchronise la config.
         channel.bind('OptionsUpdated', () => {
             console.log('[realtime] ⬇ OptionsUpdated');
-            void useConfig.getState().syncFromServer();
+            guard('resync config', () => useConfig.getState().syncFromServer());
         });
         // Notes rapides modifiées dans l'admin : même traitement, la liste est
         // trop petite pour mériter un payload dédié.
         channel.bind('QuickNotesUpdated', () => {
             console.log('[realtime] ⬇ QuickNotesUpdated');
-            void useConfig.getState().syncFromServer();
+            guard('resync config', () => useConfig.getState().syncFromServer());
         });
         channel.bind('TableStatusChanged', () => useRealtime.getState().bumpTables());
         channel.bind('OrderUpdated', (o: Order) => {
             console.log('[realtime] ⬇ OrderUpdated', o?.id, o?.status);
-            void receiveRemoteOrder(o);
+            guard('OrderUpdated', () => receiveRemoteOrder(o));
         });
         // L'écran cuisine a bien reçu : on annule l'impression de secours.
         channel.bind('KdsAcknowledged', (e: { order_id: string; station_id: number }) => {
