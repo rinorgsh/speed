@@ -26,3 +26,18 @@ export async function fetchUpdateAsync(): Promise<{ isNew: boolean }> {
 export async function reloadAsync(): Promise<void> {
     await bridge().install();
 }
+
+/*
+ * Identité de la version exécutée, affichée par `BuildStamp`.
+ *
+ * Sur mobile ces champs viennent d'EAS ; ici la notion de « mise à jour à
+ * distance » n'existe pas — l'application entière est remplacée. On expose donc
+ * la version du paquet, et « bureau » en guise d'identifiant, pour que le repère
+ * affiché à l'écran reste vrai des deux côtés.
+ */
+export const runtimeVersion: string | null =
+    (window as any).speedDesktop?.version ?? null;
+
+export const updateId: string | null = null; // toujours le paquet installé
+
+export const createdAt: Date | null = null;

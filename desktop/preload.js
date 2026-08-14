@@ -24,6 +24,12 @@ async function invoke(channel, payload) {
 }
 
 contextBridge.exposeInMainWorld('speedDesktop', {
+    /**
+     * Version installée, affichée par `BuildStamp` sur l'écran d'accueil.
+     * Sans elle, impossible de savoir en salle si un poste est à jour.
+     */
+    version: require('./package.json').version,
+
     /** Impression ESC/POS : octets déjà construits par escpos.ts. */
     printerSend: (host, port, base64) => invoke('printer:send', { host, port, base64 }),
 

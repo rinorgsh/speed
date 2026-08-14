@@ -4,6 +4,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { Star, Store, ChevronDown, RefreshCw, CloudOff, RotateCcw } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
+import { BuildStamp } from '../components/BuildStamp';
 import { theme } from '../theme';
 import { useConfig } from '../store/useConfig';
 import { signInAs, signsInWithoutPin } from '../services/signIn';
@@ -187,6 +188,9 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
                     </View>
                 )}
             </ScrollView>
+            {/* Version exécutée par cet appareil : le seul moyen de savoir, en
+                salle, si une tablette est à jour ou non. */}
+            <BuildStamp />
         </Screen>
     );
 }
