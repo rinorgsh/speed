@@ -16,15 +16,29 @@ import { theme } from '../theme';
  * explicitement comme « embarqué » plutôt que de laisser un vide ambigu.
  */
 export function BuildStamp() {
-    const version = Updates.runtimeVersion ?? '—';
-    const maj = Updates.updateId ? Updates.updateId.slice(0, 8) : 'embarqué';
-    const date = Updates.createdAt
-        ? new Date(Updates.createdAt).toLocaleDateString('fr-BE', { day: '2-digit', month: '2-digit' })
-        : null;
+    /*
+     * Entièrement protégé. Ce n'est qu'un repère de diagnostic : il ne doit
+     * JAMAIS pouvoir empêcher l'écran d'accueil de s'afficher. Une constante
+     * absente sur une plateforme ou un binaire donné ferait tomber tout l'écran
+     * — et donc la caisse — pour une ligne de texte grise.
+     */
+    let libelle = '';
+    try {
+        const version = Updates.runtimeVersion ?? '—';
+        const maj = Updates.updateId ? String(Updates.updateId).slice(0, 8) : 'embarqué';
+        const brut = Updates.createdAt ? new Date(Updates.createdAt) : null;
+        const date = brut && !Number.isNaN(brut.getTime())
+            ? brut.toLocaleDateString('fr-BE', { day: '2-digit', month: '2-digit' })
+            : null;
+
+        libelle = `v${version} · ${maj}${date ? ` · ${date}` : ''}`;
+    } catch {
+        return null;
+    }
 
     return (
         <Text style={styles.stamp} numberOfLines={1}>
-            v{version} · {maj}{date ? ` · ${date}` : ''}
+            {libelle}
         </Text>
     );
 }
