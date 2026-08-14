@@ -3,16 +3,10 @@ import { Dimensions } from 'react-native';
 /**
  * Orientation de l'écran, décidée selon la TAILLE de l'appareil.
  *
- * Le manifeste autorise toutes les orientations — indispensable pour qu'une
- * tablette puisse tourner, et c'est un réglage natif qu'aucune mise à jour à
- * distance ne peut modifier. Mais autoriser partout dégraderait les téléphones :
- * les écrans de prise de commande sont composés en colonne, et un iPhone couché
- * n'affiche plus que trois lignes de panier.
- *
- * D'où un arbitrage au démarrage :
- *  - téléphone  -> verrouillé en portrait, comme avant ;
- *  - tablette   -> libre, l'exploitant tourne l'écran comme il veut. C'est là
- *                  que le mode Comptoir prend tout son sens.
+ *  - téléphone  -> verrouillé en portrait : les écrans de prise de commande
+ *                  sont composés en colonne, un iPhone couché n'affiche plus
+ *                  que trois lignes de panier ;
+ *  - tablette   -> libre, c'est là que le mode Comptoir prend son sens.
  *
  * Le seuil porte sur le PLUS PETIT côté de l'écran physique, jamais sur la
  * largeur courante : cette dernière change quand l'appareil tourne, et servirait
@@ -21,27 +15,27 @@ import { Dimensions } from 'react-native';
 const TABLETTE_MIN_DP = 600;
 
 /**
- * Chargement TOLÉRANT du module natif.
+ * PRÉSENCE DU MODULE NATIF — à ne pas simplifier.
  *
  * `expo-screen-orientation` a été ajouté après la publication des binaires en
- * service. Or `runtimeVersion` suit la version de l'application : EAS juge donc
- * la mise à jour compatible et l'envoie à des appareils dont le binaire ne
- * contient pas ce module. Un `import` statique fait alors échouer tout le
- * paquet au lancement, et l'appareil revient au paquet embarqué — il paraît
- * ignorer TOUTES les mises à jour suivantes, y compris celles qui n'ont rien à
- * voir. C'est arrivé.
+ * service. Or `runtimeVersion` suit la version de l'application : EAS envoie
+ * donc les mises à jour à des appareils dont le binaire ne contient pas ce
+ * module.
  *
- * Un chargement paresseux protégé rend le paquet exécutable partout : sur un
- * ancien binaire l'orientation reste simplement telle qu'elle était, et le
- * reste des correctifs arrive normalement.
+ * Le 14/08/2026, cela a fait planter la caisse en production. Un `import`
+ * statique d'abord, puis un `require()` protégé par `try/catch` — insuffisant :
+ * le require déclenche côté natif la recherche d'un module absent, et
+ * l'exception levée là ne traverse PAS le JavaScript. Aucun garde-fou JS ne
+ * peut la rattraper, l'application s'arrête net.
+ *
+ * On interroge donc le registre des modules natifs AVANT tout require. Tant que
+ * le binaire ne l'expose pas, on ne touche jamais au module et l'orientation
+ * reste celle du manifeste. Le jour où un build embarquant le module est
+ * installé, la fonction s'active toute seule, sans nouvelle publication.
  */
-function loadModule(): any | null {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        return require('expo-screen-orientation');
-    } catch {
-        return null;
-    }
+function moduleNatifPresent(): boolean {
+    const modules = (globalThis as any)?.expo?.modules;
+    return !!modules?.ExpoScreenOrientation;
 }
 
 export function isTabletDevice(): boolean {
@@ -49,21 +43,23 @@ export function isTabletDevice(): boolean {
     return Math.min(width, height) >= TABLETTE_MIN_DP;
 }
 
-/** À appeler une fois au démarrage. Silencieux en cas d'échec : jamais bloquant. */
+/** À appeler une fois au démarrage. Sans effet tant que le binaire n'a pas le module. */
 export async function applyOrientationPolicy(): Promise<void> {
-    const ScreenOrientation = loadModule();
-    if (!ScreenOrientation?.lockAsync) {
+    if (!moduleNatifPresent()) {
         console.log('[orientation] module absent de ce binaire — réglage laissé tel quel');
         return;
     }
 
     try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const ScreenOrientation = require('expo-screen-orientation');
         if (isTabletDevice()) {
             await ScreenOrientation.unlockAsync();
         } else {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
         }
-    } catch {
+    } catch (e: any) {
         // Un appareil qui refuse le verrouillage reste parfaitement utilisable.
+        console.log('[orientation] réglage impossible :', e?.message ?? e);
     }
 }
