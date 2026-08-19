@@ -8,7 +8,7 @@ import { LineActionsSheet } from '../components/LineActionsSheet';
 import { ProductTile } from '../components/ProductTile';
 import { LineNoteModal } from '../components/LineNoteModal';
 import { theme } from '../theme';
-import { useConfig } from '../store/useConfig';
+import { useConfig, showProductPrices } from '../store/useConfig';
 import { useCart } from '../store/useCart';
 import { useAuth } from '../store/useAuth';
 import * as db from '../db/database';
@@ -43,6 +43,7 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
     // précédent, et une vente comptoir s'afficherait comme une table.
     const categories = useConfig((s) => s.categories);
     const allProducts = useConfig((s) => s.products);
+    const showPrices = useConfig(showProductPrices);
     const order = useCart((s) => s.order);
     const server = useAuth((s) => s.server);
     const allTables = useConfig((s) => s.tables);
@@ -337,6 +338,7 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
                                 size={cell}
                                 qty={counts.get(p.id) ?? 0}
                                 price={p.is_open_price ? t('Prix libre') : euro(p.price)}
+                                showPrice={showPrices}
                                 onPress={() => onProduct(p)}
                             />
                         ))}

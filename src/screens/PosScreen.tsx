@@ -6,7 +6,7 @@ import { Screen } from '../components/Screen';
 import { OptionsModal } from '../components/OptionsModal';
 import { ProductTile } from '../components/ProductTile';
 import { theme } from '../theme';
-import { useConfig } from '../store/useConfig';
+import { useConfig, showProductPrices } from '../store/useConfig';
 import { useCart } from '../store/useCart';
 import { printKitchen } from '../services/printing';
 import type { Category, Product, SelectedOption } from '../types';
@@ -24,6 +24,7 @@ const PROD_SIZE = Math.floor((SCREEN_W - H_PAD * 2 - GAP * (PROD_COLS - 1)) / PR
 export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamList, 'Pos'>) {
     const categories = useConfig((s) => s.categories);
     const allProducts = useConfig((s) => s.products);
+    const showPrices = useConfig(showProductPrices);
     const order = useCart((s) => s.order);
     const addLine = useCart((s) => s.addLine);
 
@@ -173,6 +174,7 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
                         size={PROD_SIZE}
                         qty={counts.get(p.id) ?? 0}
                         price={p.is_open_price ? 'Prix libre' : `${p.price.toFixed(2)} €`}
+                        showPrice={showPrices}
                         onPress={() => onProduct(p)}
                     />
                 ))}

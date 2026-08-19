@@ -25,10 +25,16 @@ interface Props {
     qty: number;
     /** Libellé du prix (« 4,50 € » ou « Prix libre »). */
     price: string;
+    /**
+     * Réglage d'établissement « Afficher le prix sur les produits ». Faux, le
+     * bandeau se réduit au nom et dégage de la hauteur pour le visuel. Par
+     * défaut vrai : une tuile sans prix ne doit jamais être un accident.
+     */
+    showPrice?: boolean;
     onPress: () => void;
 }
 
-export function ProductTile({ product, size, qty, price, onPress }: Props) {
+export function ProductTile({ product, size, qty, price, showPrice = true, onPress }: Props) {
     const hasImage = !!product.image_url;
 
     return (
@@ -54,15 +60,15 @@ export function ProductTile({ product, size, qty, price, onPress }: Props) {
                         // vignettes donne une impression de lenteur.
                         fadeDuration={0}
                     />
-                    <View style={styles.caption}>
+                    <View style={[styles.caption, !showPrice && styles.captionTight]}>
                         <Text style={styles.captionName} numberOfLines={1}>{product.name}</Text>
-                        <Text style={styles.captionPrice}>{price}</Text>
+                        {showPrice && <Text style={styles.captionPrice}>{price}</Text>}
                     </View>
                 </>
             ) : (
-                <View style={styles.plain}>
+                <View style={[styles.plain, !showPrice && styles.plainCentered]}>
                     <Text style={styles.plainName} numberOfLines={2}>{product.name}</Text>
-                    <Text style={styles.plainPrice}>{price}</Text>
+                    {showPrice && <Text style={styles.plainPrice}>{price}</Text>}
                 </View>
             )}
 
@@ -86,11 +92,16 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.62)',
         paddingHorizontal: theme.spacing(2), paddingVertical: theme.spacing(1.5),
     },
+    // Sans prix, le bandeau n'a plus qu'une ligne à porter : on le resserre
+    // pour rendre au visuel la hauteur qu'occupait le chiffre.
+    captionTight: { paddingVertical: theme.spacing(1) },
     captionName: { color: '#fff', fontWeight: '700', fontSize: 13 },
     captionPrice: { color: '#fff', fontWeight: '800', fontSize: 14, marginTop: 1 },
 
     // Rendu sans visuel (tuile d'origine)
     plain: { flex: 1, padding: theme.spacing(2.5), justifyContent: 'space-between' },
+    // Le nom seul, calé en haut, laisserait un grand vide sous lui.
+    plainCentered: { justifyContent: 'center' },
     plainName: { color: '#fff', fontWeight: '700', fontSize: 14 },
     plainPrice: { color: '#fff', fontWeight: '800', fontSize: 15 },
 

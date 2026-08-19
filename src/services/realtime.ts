@@ -136,6 +136,12 @@ export function connectRealtime(config: RealtimeConfig | null, apiUrl: string, p
             console.log('[realtime] ⬇ QuickNotesUpdated');
             guard('resync config', () => useConfig.getState().syncFromServer());
         });
+        // Réglages de l'établissement : le serveur diffuse sur chaque profil
+        // actif, car les réglages sont communs alors que les canaux ne le sont pas.
+        channel.bind('SettingsUpdated', () => {
+            console.log('[realtime] ⬇ SettingsUpdated');
+            guard('resync config', () => useConfig.getState().syncFromServer());
+        });
         channel.bind('TableStatusChanged', () => useRealtime.getState().bumpTables());
         channel.bind('OrderUpdated', (o: Order) => {
             console.log('[realtime] ⬇ OrderUpdated', o?.id, o?.status);

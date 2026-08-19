@@ -39,6 +39,16 @@ interface ConfigState {
     fallbackOrderPrinter: () => Printer | null;
 }
 
+/**
+ * Réglage d'établissement « Afficher le prix sur les produits ».
+ *
+ * Le prix reste affiché tant qu'il n'a pas été explicitement coupé : un
+ * établissement d'avant ce réglage n'a pas la clé en cache, et une caisse ne
+ * doit pas se retrouver sans prix par simple absence de valeur. La comparaison
+ * est faite ici, une fois, plutôt que répétée dans chaque écran.
+ */
+export const showProductPrices = (s: ConfigState) => s.settings.show_product_prices !== '0';
+
 /** Promesse de synchro en cours (garde single-flight, cf. syncFromServer). */
 let inFlightSync: Promise<boolean> | null = null;
 
