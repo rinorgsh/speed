@@ -115,10 +115,17 @@ export const useConfig = create<ConfigState>((set, get) => ({
                     try {
                         const profileId = useAuth.getState().profileId;
                         const payload = await fetchBootstrap(profileId);
-                        // Anti-course : si le profil actif a changé pendant la requête (ou si le
-                        // serveur a renvoyé un autre profil), on IGNORE cette réponse périmée
-                        // pour ne jamais écraser la config du profil courant.
-                        if (payload.profile_id !== useAuth.getState().profileId) {
+                        // Anti-course : si le profil actif a changé pendant la requête, on
+                        // IGNORE cette réponse périmée pour ne jamais écraser la config du
+                        // profil courant.
+                        //
+                        // Mais un appareil fraîchement enrôlé n'a PAS ENCORE de profil : il
+                        // n'y a alors aucune config à protéger, et le serveur répond avec son
+                        // premier profil actif. Comparer dans ce cas revenait à jeter une
+                        // synchro pourtant réussie et à afficher « la config n'a pas pu être
+                        // téléchargée » à l'installateur, réseau parfaitement fonctionnel.
+                        const actif = useAuth.getState().profileId;
+                        if (actif !== null && payload.profile_id !== actif) {
                             return false;
                         }
                         await db.importBootstrap(payload);
