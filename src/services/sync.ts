@@ -4,7 +4,7 @@ import { useAuth } from '../store/useAuth';
 import { useCart } from '../store/useCart';
 import { useRealtime } from '../store/useRealtime';
 import { guard } from '../utils/guard';
-import type { Order } from '../types';
+import type { Order, PosSession } from '../types';
 
 /**
  * Synchro montante (outbox) : pousse les commandes locales non synchronisées
@@ -230,14 +230,45 @@ export function pullOpenOrders(): Promise<{ pulled: number; failed: boolean }> {
     return inFlightPull;
 }
 
+/**
+ * Aligne la session de caisse locale sur celle que le serveur annonce.
+ *
+ * L'événement temps réel `SessionClosed` ne suffit pas : un appareil hors ligne
+ * ou en arrière-plan au moment de la clôture ne le reçoit jamais et continue de
+ * travailler sur une session périmée — c'est l'incident du 22/08/2026, où
+ * 4 975 EUR sont tombés hors du rapport Z. Ce contrôle passe par la réponse de
+ * `/orders/open`, déjà interrogée par la boucle : aucun appel supplémentaire.
+ *
+ * `undefined` = le serveur ne renseigne pas encore ce champ -> on ne touche à
+ * rien. `null` = caisse fermée, et l'écran des salles renvoie alors au choix du
+ * profil.
+ *
+ * On ne réécrit QUE sur un vrai changement : `setSession` produit un nouvel
+ * objet, et l'appliquer à chaque cycle redessinerait l'écran des salles toutes
+ * les quelques secondes.
+ */
+function appliquerSession(session: PosSession | null | undefined): void {
+    if (session === undefined) return;
+
+    const actuelle = useAuth.getState().session;
+    const identique = (actuelle?.id ?? null) === (session?.id ?? null)
+        && (actuelle?.status ?? null) === (session?.status ?? null);
+
+    if (identique) return;
+
+    console.log('[sync] session de caisse mise a jour :', actuelle?.id ?? 'aucune', '->', session?.id ?? 'aucune');
+    useAuth.getState().setSession(session ?? null);
+}
+
 async function doPullOpenOrders(): Promise<{ pulled: number; failed: boolean }> {
     try {
         const profileId = useAuth.getState().profileId;
-        const orders = await fetchOpenOrders(profileId);
+        const { orders, session } = await fetchOpenOrders(profileId);
         // Anti-course : profil changé pendant la requête -> réponse périmée, on ignore.
         if (useAuth.getState().profileId !== profileId) {
             return { pulled: 0, failed: false };
         }
+        appliquerSession(session);
         for (const o of orders) {
             await db.saveRemoteOrder(normalizeOrder(o));
         }

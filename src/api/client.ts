@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { NETWORK } from '../config';
-import type { BootstrapPayload, Order, Profile } from '../types';
+import type { BootstrapPayload, Order, PosSession, Profile } from '../types';
 
 /**
  * Client API. baseURL et token sont injectés dynamiquement (configureApi),
@@ -91,11 +91,15 @@ export async function pushOrders(orders: Order[]): Promise<{ accepted: { id: str
 }
 
 /** État partagé : commandes ouvertes/envoyées côté serveur (miroir), scopées profil. */
-export async function fetchOpenOrders(profileId?: number | null): Promise<Order[]> {
-    const res = await api.get<{ orders: Order[] }>('/orders/open', {
+export async function fetchOpenOrders(
+    profileId?: number | null,
+): Promise<{ orders: Order[]; session?: PosSession | null }> {
+    const res = await api.get<{ orders: Order[]; session?: PosSession | null }>('/orders/open', {
         params: profileId ? { profile_id: profileId } : undefined,
     });
-    return res.data.orders ?? [];
+    // `session` est absent des serveurs pas encore mis à jour : on distingue
+    // « pas de session ouverte » (null) de « le serveur ne le dit pas » (undefined).
+    return { orders: res.data.orders ?? [], session: res.data.session };
 }
 
 /** Commande courante d'une table côté serveur (reprise sans doublon), ou null. */
