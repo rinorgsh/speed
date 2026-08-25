@@ -25,6 +25,23 @@ module.exports = ({ config }) => {
         ios: {
             ...config.ios,
             bundleIdentifier: `${config.ios.bundleIdentifier}.dev`,
+            infoPlist: {
+                ...config.ios.infoPlist,
+                /*
+                 * Le bac à sable tourne en http:// sur une adresse IP du réseau
+                 * local. iOS refuse le trafic en clair par défaut, et ses
+                 * exceptions par domaine ne fonctionnent pas sur une IP nue :
+                 * il n'y a pas de réglage plus fin ici.
+                 *
+                 * Ce bloc n'existe QUE dans la variante de test. La production
+                 * parle en https à on-forge.com et n'est pas concernée — elle
+                 * ne doit jamais recevoir cette permission.
+                 */
+                NSAppTransportSecurity: {
+                    NSAllowsArbitraryLoads: true,
+                    NSAllowsLocalNetworking: true,
+                },
+            },
         },
         android: {
             ...config.android,
