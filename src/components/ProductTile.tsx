@@ -50,7 +50,7 @@ interface Props {
  * sombre ça passait ; sur les visuels de cocktails, détourés sur blanc, les deux
  * calques ressortaient en BANDES GRISES franches en travers du verre.
  */
-const VOILE_URI = 'data:image/png;base64,';
+const VOILE_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAABgCAYAAAA3iqN1AAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGYktHRAD/AP8A/6C9p5MAAAAzSURBVCjP7c4xCgAgDATBifH/X9bGVHaCYOFVCwvHshZI6GgFucGZuvf8U9/p+amlAgMmKfwDcpwwcfYAAAAldEVYdGRhdGU6Y3JlYXRlADIwMjYtMDgtMjZUMDg6NDE6MTQrMDA6MDDNnDeIAAAAJXRFWHRkYXRlOm1vZGlmeQAyMDI2LTA4LTI2VDA4OjQxOjE0KzAwOjAwvMGPNAAAACh0RVh0ZGF0ZTp0aW1lc3RhbXAAMjAyNi0wOC0yNlQwODo0MToxNCswMDowMOvUrusAAAAASUVORK5CYII=';
 
 export function ProductTile({ product, size, qty, price, showPrice = true, onPress }: Props) {
     const hasImage = !!product.image_url;
@@ -118,14 +118,17 @@ const styles = StyleSheet.create({
     unavailable: { opacity: 0.4 },
 
     // Rendu avec visuel
-    voile: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '52%' },
+    // 44 % : deux lignes de nom en demandent 35, et le visuel garde sa lumière.
+    voile: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '44%' },
     caption: {
         position: 'absolute', left: 0, right: 0, bottom: 0,
         paddingHorizontal: theme.spacing(1.5), paddingBottom: theme.spacing(1.5),
     },
     captionName: {
         color: '#fff', fontWeight: '700', fontSize: 13, lineHeight: 15, letterSpacing: -0.1,
-        textShadowColor: 'rgba(0,0,0,0.55)', textShadowRadius: 3,
+        // Filet de sécurité : le dégradé fait le travail, mais si l'image venait
+        // à ne pas charger, le nom doit rester lisible sur un visuel détouré sur blanc.
+        textShadowColor: 'rgba(0,0,0,0.9)', textShadowRadius: 4, textShadowOffset: { width: 0, height: 1 },
     },
     captionPrice: {
         color: '#fff', fontWeight: '800', fontSize: 13, marginTop: 2,
