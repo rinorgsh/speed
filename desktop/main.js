@@ -105,8 +105,17 @@ function createWindow() {
     const win = new BrowserWindow({
         width: 1280,
         height: 860,
-        minWidth: 900,
-        minHeight: 600,
+        /*
+         * Bornes basses volontairement permissives.
+         *
+         * Une tablette Windows pivotée en portrait présente son petit côté :
+         * 800 px sur un 10 pouces courant. Avec un minimum de 900, la fenêtre
+         * refusait de se réduire et débordait de l'écran — la rotation devenait
+         * inutilisable. L'interface, elle, sait descendre bien plus bas : c'est
+         * la même que sur téléphone, qui tourne à 390 px.
+         */
+        minWidth: 600,
+        minHeight: 520,
         backgroundColor: '#0d0d0f',
         // La caisse tourne en plein écran sur une tablette ; sur un poste de
         // bureau, une fenêtre ordinaire reste plus pratique pour travailler.

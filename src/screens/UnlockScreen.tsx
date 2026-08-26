@@ -15,7 +15,12 @@ import { useT } from '../i18n';
 
 const PAD = 16; // padding du Screen (spacing 4)
 const GAP = 16;
-const CARD_TARGET = 170; // largeur visée d'une carte serveur
+/*
+ * 118 px : trois colonnes sur un iPhone au lieu de deux. À 170 px on ne voyait
+ * que six serveurs à l'écran alors qu'ils sont onze chez Antika, et chaque
+ * carte était vide aux deux tiers.
+ */
+const CARD_TARGET = 118;
 
 /**
  * Écran d'accueil / verrouillage : choix direct du serveur (grille de cartes).
@@ -44,7 +49,7 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
     // sur iPad, avec un avatar minuscule perdu au milieu.
     const cols = Math.max(2, Math.floor((width - PAD * 2 + GAP) / (CARD_TARGET + GAP)));
     const cardSize = Math.floor((width - PAD * 2 - GAP * (cols - 1)) / cols);
-    const avatarSize = Math.round(cardSize * 0.42);
+    const avatarSize = Math.round(cardSize * 0.40);
 
     const runSync = useCallback(async () => {
         setSyncing(true);
@@ -126,7 +131,7 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
                     return (
                         <Pressable
                             key={u.id}
-                            style={({ pressed }) => [styles.card, { width: cardSize, height: cardSize }, fav && styles.cardFav, pressed && styles.cardPressed]}
+                            style={({ pressed }) => [styles.card, { width: cardSize, height: Math.round(cardSize * 1.06) }, fav && styles.cardFav, pressed && styles.cardPressed]}
                             onPress={() => void selectUser(u)}
                             onLongPress={() => toggleFavorite(u.id)}
                             delayLongPress={400}
@@ -136,21 +141,28 @@ export function UnlockScreen({ navigation }: NativeStackScreenProps<RootStackPar
                                     <Star color="#fff" size={16} fill="#f59e0b" strokeWidth={1.5} />
                                 </View>
                             )}
+                            {/*
+                                Anneau coloré et non disque plein. La couleur reste
+                                l'identifiant du serveur — c'est elle qui le repère
+                                sur le plan de salle — mais des pastilles saturées
+                                étaient les seules taches vives de l'application et
+                                juraient avec le reste.
+                            */}
                             <View style={[styles.avatar, {
                                 width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2,
-                                backgroundColor: u.color ?? theme.colors.surfaceAlt,
+                                borderColor: u.color ?? theme.colors.borderStrong,
                             }]}>
                                 {/* Entrée sans code : la synchro prend un instant,
                                     sans repère l'appui semblerait n'avoir rien fait. */}
                                 {entering === u.id ? (
-                                    <ActivityIndicator color="#fff" />
+                                    <ActivityIndicator color={theme.colors.text} />
                                 ) : (
                                     <Text style={[styles.initial, { fontSize: Math.round(avatarSize * 0.45) }]}>
                                         {u.name.charAt(0).toUpperCase()}
                                     </Text>
                                 )}
                             </View>
-                            <Text style={[styles.name, { fontSize: Math.max(15, Math.min(22, cardSize * 0.13)) }]} numberOfLines={1}>
+                            <Text style={[styles.name, { fontSize: Math.max(13, Math.min(17, cardSize * 0.15)) }]} numberOfLines={1}>
                                 {u.name}
                             </Text>
                         </Pressable>
@@ -213,7 +225,7 @@ const styles = StyleSheet.create({
         borderRadius: theme.radius.lg,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: theme.spacing(3.5),
+        gap: theme.spacing(2.5),
         borderWidth: 1,
         borderColor: theme.colors.border,
         ...theme.shadow.card,
@@ -221,8 +233,8 @@ const styles = StyleSheet.create({
     cardFav: { borderColor: theme.colors.warning, borderWidth: 2 },
     cardPressed: { borderColor: theme.colors.borderStrong, transform: [{ scale: 0.97 }] },
     starBadge: { position: 'absolute', top: theme.spacing(3), right: theme.spacing(3) },
-    avatar: { alignItems: 'center', justifyContent: 'center' },
-    initial: { color: '#fff', fontWeight: '800' },
+    avatar: { alignItems: 'center', justifyContent: 'center', borderWidth: 2, backgroundColor: theme.colors.bg },
+    initial: { color: theme.colors.text, fontWeight: '800' },
     name: { color: theme.colors.text, fontWeight: '700', paddingHorizontal: theme.spacing(2) },
     emptyBox: { width: '100%', alignItems: 'center', gap: theme.spacing(3), marginTop: theme.spacing(10) },
     emptyTitle: { color: theme.colors.text, fontSize: 18, fontWeight: '800', marginTop: theme.spacing(1) },

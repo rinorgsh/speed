@@ -4,6 +4,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Screen } from '../components/Screen';
 import { Keypad } from '../components/Keypad';
 import { theme } from '../theme';
+import * as haptique from '../services/haptique';
 import { useConfig } from '../store/useConfig';
 import { useAuth } from '../store/useAuth';
 import { verifyPinOffline } from '../utils/pin';
@@ -41,9 +42,11 @@ export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStac
         if (!ok) {
             setChecking(false);
             setPin('');
+            haptique.echec();
             Alert.alert(t('PIN incorrect'), t('Réessayez.'));
             return;
         }
+        haptique.reussite();
         const outcome = await signInAs(user);
         setChecking(false);
 
@@ -60,6 +63,7 @@ export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStac
 
     const onKey = (d: string) => {
         if (d === '.' || checking || pin.length >= PIN_LENGTH) return; // pas de point dans un PIN
+        haptique.selection();
         const next = (pin + d).slice(0, PIN_LENGTH);
         setPin(next);
         // Validation automatique dès le 4e chiffre — pas de bouton à cliquer.
@@ -83,7 +87,13 @@ export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStac
 }
 
 const styles = StyleSheet.create({
-    header: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    /*
+     * L'en-tête gravite vers le BAS plutôt que de se centrer. Centré, il
+     * s'appropriait tout l'espace au-dessus du pavé : l'écran n'était occupé
+     * qu'au tiers, avec un vide entre les points et les touches. Poser le nom
+     * et les points juste au-dessus du clavier les rapproche aussi du pouce.
+     */
+    header: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: theme.spacing(8) },
     name: { color: theme.colors.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.3 },
     hint: { color: theme.colors.textMuted, marginTop: theme.spacing(2), marginBottom: theme.spacing(7), fontSize: 15 },
     dots: { flexDirection: 'row', gap: theme.spacing(4) },

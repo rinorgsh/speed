@@ -82,6 +82,7 @@ const options = {
         'expo-updates': shim('updates.ts'),
         'expo-status-bar': shim('status-bar.tsx'),
         'expo-screen-orientation': shim('screen-orientation.ts'),
+        'expo-haptics': shim('haptics.ts'),
         // Même jeu d'icônes, rendu en DOM au lieu de SVG natif.
         'lucide-react-native': shim('icons.ts'),
     },

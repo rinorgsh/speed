@@ -14,6 +14,7 @@ import { Screen } from '../components/Screen';
 import { SyncBadge } from '../components/SyncBadge';
 import { RoomPlan, type TableState } from '../components/RoomPlan';
 import { theme } from '../theme';
+import * as haptique from '../services/haptique';
 import { useConfig } from '../store/useConfig';
 import { useAuth } from '../store/useAuth';
 import { useCart } from '../store/useCart';
@@ -318,17 +319,51 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
     const renderTable = (t: Table) => {
         const isOccupied = occupied.includes(t.id);
         const pendingCount = pending[t.id] ?? 0; // articles pas encore envoyés en cuisine
+        /*
+         * Durée et total sur la tuile. Ces valeurs étaient déjà calculées par
+         * `tableStateOf` mais restaient invisibles en vue liste : la tuile ne
+         * portait qu'un numéro pour beaucoup de surface, alors qu'un exploitant
+         * veut savoir depuis quand une table est assise et ce qu'elle a consommé.
+         *
+         * C'est aussi le SECOND signal d'occupation : jusqu'ici elle ne se lisait
+         * qu'à la couleur, et un homme sur douze ne distingue pas le vert du gris.
+         * La présence même de ces lignes dit que la table est prise.
+         */
+        const etat = isOccupied ? tableStateOf(t.id) : null;
         return (
             <View key={t.id} style={[styles.tableWrap, { width: tableSize, height: tableSize }]}>
                 <Pressable
-                    onPress={() => openTable(t)}
+                    onPress={() => { haptique.selection(); void openTable(t); }}
                     onLongPress={() => tableActions(t)}
                     delayLongPress={600}
                     style={({ pressed }) => [styles.table, { width: tableSize, height: tableSize }, isOccupied ? styles.tableOccupied : styles.tableFree, pressed && styles.tablePressed]}
                 >
-                    {opening === t.id
-                        ? <ActivityIndicator color={isOccupied ? '#06281b' : theme.colors.primary} />
-                        : <Text style={[styles.tableLabel, { fontSize: Math.max(20, tableSize * 0.34) }, isOccupied && styles.tableLabelOccupied]}>{t.label}</Text>}
+                    {opening === t.id ? (
+                        <ActivityIndicator color={isOccupied ? '#06281b' : theme.colors.primary} />
+                    ) : (
+                        <>
+                            <Text
+                                style={[
+                                    styles.tableLabel,
+                                    { fontSize: Math.max(18, tableSize * (isOccupied ? 0.28 : 0.34)) },
+                                    isOccupied && styles.tableLabelOccupied,
+                                ]}
+                                numberOfLines={1}
+                            >
+                                {t.label}
+                            </Text>
+                            {etat && (
+                                <View style={styles.tableInfo}>
+                                    {etat.minutes !== undefined && (
+                                        <Text style={styles.tableInfoText}>{etat.minutes} min</Text>
+                                    )}
+                                    {etat.total !== undefined && etat.total > 0 && (
+                                        <Text style={styles.tableInfoTotal}>{etat.total.toFixed(2)} €</Text>
+                                    )}
+                                </View>
+                            )}
+                        </>
+                    )}
                 </Pressable>
                 {pendingCount > 0 && (
                     <View style={styles.pendingBadge} pointerEvents="none">
@@ -561,6 +596,9 @@ const styles = StyleSheet.create({
     tablePressed: { opacity: 0.8, transform: [{ scale: 0.97 }] },
     tableLabel: { color: theme.colors.text, fontWeight: '800' },
     tableLabelOccupied: { color: '#06281b' },
+    tableInfo: { alignItems: 'center', marginTop: 2 },
+    tableInfoText: { color: 'rgba(6,40,27,0.72)', fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
+    tableInfoTotal: { color: '#06281b', fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
     empty: { color: theme.colors.textMuted },
     floorSection: { marginBottom: theme.spacing(5) },
     floorRoomName: { color: theme.colors.text, fontSize: 17, fontWeight: '700', marginBottom: theme.spacing(3.5) },

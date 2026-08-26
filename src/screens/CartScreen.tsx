@@ -6,6 +6,7 @@ import { Screen } from '../components/Screen';
 import { LineActionsSheet } from '../components/LineActionsSheet';
 import { LineNoteModal } from '../components/LineNoteModal';
 import { theme } from '../theme';
+import * as haptique from '../services/haptique';
 import { useCart } from '../store/useCart';
 import { useT } from '../i18n';
 import { printKitchen } from '../services/printing';
@@ -70,7 +71,7 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
     const pendingCancel = order.lines.reduce((s, l) => s + Math.max(0, l.sent_qty - l.qty), 0);
     const canSend = pendingNew > 0 || pendingCancel > 0;
 
-    const selectLine = (id: string) => { setSelectedId((prev) => (prev === id ? null : id)); setTyping(false); setBuffer(''); };
+    const selectLine = (id: string) => { haptique.selection(); setSelectedId((prev) => (prev === id ? null : id)); setTyping(false); setBuffer(''); };
     const selectMode = (m: Mode) => { setMode(m); setTyping(false); setBuffer(''); };
 
     const apply = (value: number) => {

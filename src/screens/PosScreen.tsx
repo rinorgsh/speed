@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Search, Send, ShoppingCart, X } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
@@ -7,6 +7,7 @@ import { OptionsModal } from '../components/OptionsModal';
 import { ProductTile } from '../components/ProductTile';
 import { theme } from '../theme';
 import { useConfig, showProductPrices } from '../store/useConfig';
+import * as haptique from '../services/haptique';
 import { useCart } from '../store/useCart';
 import { printKitchen } from '../services/printing';
 import type { Category, Product, SelectedOption } from '../types';
@@ -80,6 +81,8 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
     const onProduct = (p: Product) => {
         if (!p.available) return;
         if (p.option_group_ids.length) { setModalProduct(p); return; }
+        // Le doigt sent que l'article est passé : plus besoin de vérifier l'écran.
+        haptique.ajout();
         addLine(p, [], 1, null);
         // Prix libre : le montant est à saisir, et le pavé est dans le panier.
         // Sans ce renvoi, l'article restait à 0 € sans que rien ne le signale
@@ -101,6 +104,7 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
         const current = useCart.getState().order;
         if (current) await printKitchen(current, newLines, cancelLines).catch(() => {});
         setSending(false);
+        haptique.reussite();
         const sent = newLines.reduce((s, l) => s + l.qty, 0);
         const cancelled = cancelLines.reduce((s, l) => s + l.qty, 0);
         Alert.alert('Cuisine', `${sent} article(s) envoyé(s)${cancelled ? `, ${cancelled} annulé(s)` : ''}.`);
@@ -179,11 +183,25 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
                 </>
             )}
 
-            {/* Grille produits — occupe tout l'espace dispo */}
-            <ScrollView style={styles.gridScroll} contentContainerStyle={styles.grid}>
-                {shown.map((p) => (
+            {/*
+                Grille produits, VIRTUALISÉE. Elle rendait auparavant tous les
+                produits d'un coup : 143 tuiles chez la friterie, présentes en
+                mémoire même hors de l'écran. Une FlatList n'en monte qu'une
+                poignée à la fois et recycle le reste au défilement.
+            */}
+            <FlatList
+                style={styles.gridScroll}
+                contentContainerStyle={styles.grid}
+                columnWrapperStyle={styles.gridRow}
+                data={shown}
+                keyExtractor={(p) => String(p.id)}
+                numColumns={PROD_COLS}
+                initialNumToRender={PROD_COLS * 4}
+                windowSize={5}
+                removeClippedSubviews
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item: p }) => (
                     <ProductTile
-                        key={p.id}
                         product={p}
                         size={PROD_SIZE}
                         qty={counts.get(p.id) ?? 0}
@@ -191,9 +209,9 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
                         showPrice={showPrices}
                         onPress={() => onProduct(p)}
                     />
-                ))}
-                {!shown.length && <Text style={styles.empty}>Aucun produit.</Text>}
-            </ScrollView>
+                )}
+                ListEmptyComponent={<Text style={styles.empty}>Aucun produit.</Text>}
+            />
 
             {/* Barre du bas — collée en bas.
                 Le bouton mis en avant est celui que la SITUATION appelle : des
@@ -263,7 +281,8 @@ const styles = StyleSheet.create({
 
     // Produits
     gridScroll: { flex: 1, marginTop: theme.spacing(2.5) },
-    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingHorizontal: H_PAD, paddingBottom: theme.spacing(3) },
+    grid: { gap: GAP, paddingHorizontal: H_PAD, paddingBottom: theme.spacing(3) },
+    gridRow: { gap: GAP },
     empty: { color: theme.colors.textMuted, padding: theme.spacing(4) },
 
     // Barre du bas
