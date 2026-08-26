@@ -449,7 +449,7 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
                                 {processing ? <ActivityIndicator color="#fff" /> : (
                                     <>
                                         <Send color="#fff" size={20} />
-                                        <Text style={styles.actionText}>Order</Text>
+                                        <Text style={styles.actionText}>Envoyer</Text>
                                         {pendingNew > 0 && (
                                             <View style={styles.badgeNew}><Text style={styles.badgeText}>+{fmtQty(pendingNew)}</Text></View>
                                         )}
@@ -469,7 +469,7 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
                                 style={[styles.actionBtn, styles.cartBtn, (!lines.length || processing) && styles.btnDisabled]}
                             >
                                 <CreditCard color="#fff" size={20} />
-                                <Text style={styles.actionText}>Payment</Text>
+                                <Text style={styles.actionText}>Encaisser</Text>
                                 <View style={styles.cartInfo}>
                                     <Text style={styles.cartInfoText}>{lines.length} · {euro(total)}</Text>
                                 </View>
@@ -543,16 +543,7 @@ const styles = StyleSheet.create({
     tabTextActive: { color: theme.colors.onAccent },
 
     grid: { flexDirection: 'row', flexWrap: 'wrap', paddingBottom: theme.spacing(3) },
-    product: { borderRadius: theme.radius.md, padding: theme.spacing(2.5), justifyContent: 'space-between' },
     unavailable: { opacity: 0.4 },
-    productName: { color: '#fff', fontWeight: '700', fontSize: 14 },
-    productPrice: { color: '#fff', fontWeight: '800', fontSize: 15 },
-    counter: {
-        position: 'absolute', top: 6, right: 6, minWidth: 26, height: 26, borderRadius: 13,
-        backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6,
-    },
-    counterText: { color: theme.colors.bg, fontWeight: '800', fontSize: 14 },
-    badge86: { position: 'absolute', top: 6, left: 8, color: '#fff', fontWeight: '800' },
     // Boutons d'action en mode table : mêmes couleurs que le téléphone.
     actionBtn: { flex: 1, height: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing(2), borderRadius: theme.radius.md },
     orderBtn: { backgroundColor: theme.colors.warning },

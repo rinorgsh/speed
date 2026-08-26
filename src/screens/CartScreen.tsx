@@ -179,65 +179,87 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
                 <View style={styles.totalRow}><Text style={styles.totalLabel}>Total</Text><Text style={styles.totalValue}>{order.total.toFixed(2)} €</Text></View>
             </View>
 
-            {/* Pavé numérique */}
-            <View style={styles.pad}>
-                {KEYS.map((row, ri) => (
-                    <View key={ri} style={styles.padRow}>
-                        {row.map((cell) => {
-                            if (cell.k === 'spacer') return <View key="sp" style={styles.padCell} />;
-                            if (cell.mode) {
-                                const active = mode === cell.mode;
-                                return (
-                                    <Pressable key={cell.k} onPress={() => selectMode(cell.mode!)} style={[styles.padCell, styles.modeCell, active && styles.modeCellOn]}>
-                                        <Text style={[styles.modeText, active && styles.modeTextOn]}>{cell.label}</Text>
-                                    </Pressable>
-                                );
-                            }
-                            if (cell.back) {
-                                return (
-                                    <Pressable key="back" onPress={() => onKey('back')} style={[styles.padCell, styles.backCell]}>
-                                        <Delete color={theme.colors.danger} size={24} />
-                                    </Pressable>
-                                );
-                            }
-                            return (
-                                <Pressable key={cell.k} onPress={() => onKey(cell.k)} style={({ pressed }) => [styles.padCell, styles.digitCell, pressed && styles.padPressed]}>
-                                    <Text style={styles.digitText}>{cell.k}</Text>
-                                </Pressable>
-                            );
-                        })}
+            {/*
+                Pavé numérique et actions de ligne : affichés SEULEMENT quand une
+                ligne est sélectionnée. Ils occupaient un tiers de l'écran en
+                permanence, y compris sur un panier vide, pendant que la liste des
+                articles — le contenu — se contentait du reste. Rien ne disait non
+                plus SUR QUELLE ligne le pavé agissait : on tapait un chiffre en
+                espérant viser la bonne.
+            */}
+            {selected ? (
+                <>
+                    <View style={styles.padHead}>
+                        <Text style={styles.padHeadName} numberOfLines={1}>
+                            {selected.name_snapshot} · {mode === 'qty' ? t('quantité') : t('prix')}
+                        </Text>
+                        <Text style={styles.padHeadValue}>
+                            {mode === 'qty' ? fmt(selected.qty) : selected.unit_price_snapshot.toFixed(2)}
+                        </Text>
                     </View>
-                ))}
-            </View>
+                    <View style={styles.pad}>
+                        {KEYS.map((row, ri) => (
+                            <View key={ri} style={styles.padRow}>
+                                {row.map((cell) => {
+                                    if (cell.k === 'spacer') return <View key="sp" style={styles.padCell} />;
+                                    if (cell.mode) {
+                                        const active = mode === cell.mode;
+                                        return (
+                                            <Pressable key={cell.k} onPress={() => selectMode(cell.mode!)} style={[styles.padCell, styles.modeCell, active && styles.modeCellOn]}>
+                                                <Text style={[styles.modeText, active && styles.modeTextOn]}>{cell.label}</Text>
+                                            </Pressable>
+                                        );
+                                    }
+                                    if (cell.back) {
+                                        return (
+                                            <Pressable key="back" onPress={() => onKey('back')} style={[styles.padCell, styles.backCell]}>
+                                                <Delete color={theme.colors.textMuted} size={24} />
+                                            </Pressable>
+                                        );
+                                    }
+                                    return (
+                                        <Pressable key={cell.k} onPress={() => onKey(cell.k)} style={({ pressed }) => [styles.padCell, styles.digitCell, pressed && styles.padPressed]}>
+                                            <Text style={styles.digitText}>{cell.k}</Text>
+                                        </Pressable>
+                                    );
+                                })}
+                            </View>
+                        ))}
+                    </View>
 
-            {/* Note / Actions. La note est là en accès direct : c'est le geste le
-                plus fréquent sur une ligne, il ne mérite pas un détour par un menu. */}
-            <View style={styles.secondaryRow}>
-                <Pressable
-                    style={[styles.secondaryBtn, !selected && styles.secondaryDim, !!selected?.note && styles.secondaryOn]}
-                    onPress={openNote}
-                    disabled={!selected}
-                >
-                    <MessageSquare color={selected?.note ? theme.colors.warning : theme.colors.text} size={18} />
-                    <Text style={[styles.secondaryText, !!selected?.note && styles.secondaryTextOn]}>{t('Note')}</Text>
-                </Pressable>
-                <Pressable style={[styles.secondaryBtn, !selected && styles.secondaryDim]} onPress={openActions} disabled={!selected}>
-                    <Sliders color={theme.colors.text} size={18} />
-                    <Text style={styles.secondaryText}>Actions</Text>
-                </Pressable>
-            </View>
+                    {/* Note / Actions : sans ligne visée, ces deux boutons n'avaient
+                        rien sur quoi agir — ils restaient grisés à l'écran. */}
+                    <View style={styles.secondaryRow}>
+                        <Pressable
+                            style={[styles.secondaryBtn, !!selected?.note && styles.secondaryOn]}
+                            onPress={openNote}
+                        >
+                            <MessageSquare color={selected?.note ? theme.colors.warning : theme.colors.text} size={18} />
+                            <Text style={[styles.secondaryText, !!selected?.note && styles.secondaryTextOn]}>{t('Note')}</Text>
+                        </Pressable>
+                        <Pressable style={styles.secondaryBtn} onPress={openActions}>
+                            <Sliders color={theme.colors.text} size={18} />
+                            <Text style={styles.secondaryText}>Actions</Text>
+                        </Pressable>
+                    </View>
+                </>
+            ) : (
+                lines.length > 0 && (
+                    <Text style={styles.padHint}>{t('Touchez une ligne pour modifier la quantité')}</Text>
+                )
+            )}
 
             {/* Bas : Order + Payment */}
             <View style={styles.bottomBar}>
                 <Pressable onPress={send} disabled={!canSend || sending} style={[styles.orderBtn, (!canSend || sending) && styles.disabled]}>
                     <Send color="#fff" size={18} />
-                    <Text style={styles.bottomText}>Order</Text>
+                    <Text style={styles.bottomText}>Envoyer</Text>
                     {pendingNew > 0 && <View style={styles.badgeNew}><Text style={styles.badgeText}>+{fmt(pendingNew)}</Text></View>}
                     {pendingCancel > 0 && <View style={styles.badgeCancel}><Text style={styles.badgeText}>−{fmt(pendingCancel)}</Text></View>}
                 </Pressable>
                 <Pressable onPress={() => navigation.navigate('Payment')} disabled={!lines.length} style={[styles.payBtn, !lines.length && styles.disabled]}>
                     <CreditCard color="#fff" size={18} />
-                    <Text style={styles.bottomText}>Payment</Text>
+                    <Text style={styles.bottomText}>Encaisser</Text>
                 </Pressable>
             </View>
 
@@ -259,7 +281,7 @@ const styles = StyleSheet.create({
     lineOpt: { color: theme.colors.textFaint, fontSize: 12 },
     noteRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(1.5), marginTop: 3 },
     lineNote: { color: theme.colors.warning, fontSize: 12, fontStyle: 'italic', flex: 1 },
-    lineTotal: { color: theme.colors.text, fontWeight: '800', fontSize: 16 },
+    lineTotal: { color: theme.colors.text, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] },
     empty: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing(8) },
 
     // Sur place / Emporter : segmenté compact, au-dessus des totaux qu'il fait varier.
@@ -276,10 +298,17 @@ const styles = StyleSheet.create({
     totals: { paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(3), borderTopWidth: 1, borderColor: theme.colors.border },
     totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
     taxLabel: { color: theme.colors.textMuted, fontSize: 14 },
-    taxValue: { color: theme.colors.textMuted, fontSize: 14 },
-    totalLabel: { color: theme.colors.text, fontSize: 20, fontWeight: '800' },
-    totalValue: { color: theme.colors.text, fontSize: 24, fontWeight: '800' },
+    taxValue: { fontVariant: ['tabular-nums'], color: theme.colors.textMuted, fontSize: 14 },
+    totalLabel: { color: theme.colors.textFaint, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
+    totalValue: { color: theme.colors.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
 
+    // Rappel de la ligne visée : sans lui, le pavé agissait « quelque part ».
+    padHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between',
+        gap: theme.spacing(3), paddingHorizontal: theme.spacing(4), paddingBottom: theme.spacing(1.5) },
+    padHeadName: { flex: 1, color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
+    padHeadValue: { color: theme.colors.text, fontSize: 19, fontWeight: '800', fontVariant: ['tabular-nums'] },
+    padHint: { color: theme.colors.textFaint, fontSize: 13, textAlign: 'center',
+        paddingVertical: theme.spacing(3.5) },
     pad: { paddingHorizontal: theme.spacing(3), gap: theme.spacing(2), paddingTop: theme.spacing(2) },
     padRow: { flexDirection: 'row', gap: theme.spacing(2) },
     padCell: { flex: 1, height: 52, borderRadius: theme.radius.sm, alignItems: 'center', justifyContent: 'center' },

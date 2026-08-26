@@ -31,6 +31,12 @@ export function RootNavigator() {
                 headerTintColor: theme.colors.text,
                 headerTitleStyle: { fontWeight: '800', fontSize: 18 },
                 headerTitleAlign: 'center',
+                /*
+                 * Sans ceci, le bouton de retour reprend le NOM DE ROUTE de l'écran
+                 * précédent quand celui-ci masque son en-tête : on lisait « Rooms »
+                 * et « Unlock » au milieu d'une application française.
+                 */
+                headerBackTitle: 'Retour',
                 contentStyle: { backgroundColor: theme.colors.bg },
             }}
         >

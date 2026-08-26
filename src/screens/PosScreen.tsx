@@ -54,8 +54,8 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
     useLayoutEffect(() => {
         navigation.setOptions({
             headerRight: () => (
-                <Pressable onPress={() => setSearchActive((v) => !v)} hitSlop={12} style={{ paddingHorizontal: 4 }}>
-                    <Search color={theme.colors.text} size={22} />
+                <Pressable onPress={() => setSearchActive((v) => !v)} hitSlop={10} style={styles.searchBtn}>
+                    <Search color={theme.colors.text} size={24} />
                 </Pressable>
             ),
         });
@@ -112,6 +112,13 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
     const pendingNew = order?.lines.reduce((s, l) => s + Math.max(0, l.qty - l.sent_qty), 0) ?? 0;
     const pendingCancel = order?.lines.reduce((s, l) => s + Math.max(0, l.sent_qty - l.qty), 0) ?? 0;
     const canOrder = pendingNew > 0 || pendingCancel > 0;
+    /*
+     * Quel bouton mérite le vert ? Celui que la situation appelle. Des articles
+     * attendent d'être envoyés -> « Envoyer ». Plus rien en attente -> « Panier »,
+     * la porte vers l'encaissement. Deux boutons de poids identique laissaient le
+     * serveur choisir à chaque fois ; ici l'écran lui indique la suite.
+     */
+    const aEnvoyer = canOrder;
     const fmtQty = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(2));
 
     // Rangée d'onglets (catégories ou sous-catégories) : slide horizontal, chaque
@@ -129,7 +136,14 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
                     <Pressable
                         key={c.id}
                         onPress={() => onSelect(c.id)}
-                        style={[big ? styles.cat : styles.subcat, { backgroundColor: active ? (c.color ?? theme.colors.surfaceAlt) : theme.colors.surface }]}
+                        style={[
+                            big ? styles.cat : styles.subcat,
+                            // Le premier niveau se remplit de la couleur de la famille ;
+                            // le second reste sourd, pour qu'on sache à quel étage on est.
+                            big
+                                ? { backgroundColor: active ? (c.color ?? theme.colors.surfaceAlt) : theme.colors.surface }
+                                : { backgroundColor: active ? theme.colors.surfaceAlt : theme.colors.bg, borderColor: active ? theme.colors.borderStrong : theme.colors.border },
+                        ]}
                     >
                         <Text style={[big ? styles.catText : styles.subcatText, active ? styles.tabTextActive : styles.tabTextIdle]}>{c.name}</Text>
                     </Pressable>
@@ -181,30 +195,45 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
                 {!shown.length && <Text style={styles.empty}>Aucun produit.</Text>}
             </ScrollView>
 
-            {/* Barre du bas — collée en bas */}
+            {/* Barre du bas — collée en bas.
+                Le bouton mis en avant est celui que la SITUATION appelle : des
+                articles non envoyés -> « Envoyer » ; plus rien en attente ->
+                « Panier », d'où l'on encaisse sans jamais passer par la cuisine. */}
             <View style={styles.bottomBar}>
-                <Pressable onPress={sendOrder} disabled={!canOrder || sending} style={[styles.orderBtn, (!canOrder || sending) && styles.btnDisabled]}>
+                <Pressable
+                    onPress={sendOrder}
+                    disabled={!canOrder || sending}
+                    style={[styles.action, aEnvoyer ? styles.actionOn : styles.actionOff, (!canOrder || sending) && styles.btnDisabled]}
+                >
                     {sending ? (
-                        <ActivityIndicator color="#fff" />
+                        <ActivityIndicator color={aEnvoyer ? '#04220F' : theme.colors.text} />
                     ) : (
                         <>
-                            <Send color="#fff" size={20} />
-                            <Text style={styles.btnText}>Order</Text>
-                            {pendingNew > 0 && (
-                                <View style={styles.badgeNew}><Text style={styles.badgeText}>+{fmtQty(pendingNew)}</Text></View>
-                            )}
-                            {pendingCancel > 0 && (
-                                <View style={styles.badgeCancel}><Text style={styles.badgeText}>−{fmtQty(pendingCancel)}</Text></View>
+                            <View style={styles.actionLine}>
+                                <Send color={aEnvoyer ? '#04220F' : theme.colors.text} size={18} />
+                                <Text style={[styles.actionText, aEnvoyer && styles.actionTextOn]}>Envoyer</Text>
+                            </View>
+                            {(pendingNew > 0 || pendingCancel > 0) && (
+                                <Text style={[styles.actionSub, aEnvoyer && styles.actionSubOn]}>
+                                    {pendingNew > 0 ? `+${fmtQty(pendingNew)}` : ''}
+                                    {pendingNew > 0 && pendingCancel > 0 ? '  ' : ''}
+                                    {pendingCancel > 0 ? `−${fmtQty(pendingCancel)}` : ''}
+                                </Text>
                             )}
                         </>
                     )}
                 </Pressable>
-                <Pressable onPress={() => navigation.navigate('Cart')} style={styles.cartBtn}>
-                    <ShoppingCart color="#fff" size={20} />
-                    <Text style={styles.btnText}>Cart</Text>
-                    <View style={styles.cartInfo}>
-                        <Text style={styles.cartInfoText}>{count} · {total.toFixed(2)} €</Text>
+                <Pressable
+                    onPress={() => navigation.navigate('Cart')}
+                    style={[styles.action, aEnvoyer ? styles.actionOff : styles.actionOn]}
+                >
+                    <View style={styles.actionLine}>
+                        <ShoppingCart color={aEnvoyer ? theme.colors.text : '#04220F'} size={18} />
+                        <Text style={[styles.actionText, !aEnvoyer && styles.actionTextOn]}>Panier</Text>
                     </View>
+                    <Text style={[styles.actionSub, !aEnvoyer && styles.actionSubOn]}>
+                        {count} · {total.toFixed(2)} €
+                    </Text>
                 </Pressable>
             </View>
 
@@ -216,6 +245,9 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
 const styles = StyleSheet.create({
     // Recherche
     searchRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.md, paddingHorizontal: theme.spacing(3.5), height: 48, marginHorizontal: H_PAD, marginTop: theme.spacing(2.5) },
+    // Une icône de 22 px sans fond n'offrait presque aucune cible, alors que la
+    // recherche est le chemin le plus court dans une carte de 143 produits.
+    searchBtn: { width: 40, height: 40, borderRadius: theme.radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceAlt },
     searchInput: { flex: 1, color: theme.colors.text, fontSize: 16, height: '100%' },
 
     // Onglets (slide horizontal)
@@ -223,36 +255,26 @@ const styles = StyleSheet.create({
     subScroll: { flexGrow: 0, paddingTop: theme.spacing(2) },
     tabScrollContent: { gap: GAP, paddingHorizontal: H_PAD },
     cat: { height: 56, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.spacing(6) },
-    subcat: { height: 56, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.spacing(6) },
-    catText: { fontWeight: '800', fontSize: 16 },
-    subcatText: { fontWeight: '800', fontSize: 16 },
+    subcat: { height: 44, borderRadius: theme.radius.sm, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.spacing(4.5), borderWidth: 1, borderColor: theme.colors.border },
+    catText: { fontWeight: '800', fontSize: 16, letterSpacing: -0.2 },
+    subcatText: { fontWeight: '700', fontSize: 14 },
     tabTextActive: { color: theme.colors.onAccent },
     tabTextIdle: { color: theme.colors.textMuted },
 
     // Produits
     gridScroll: { flex: 1, marginTop: theme.spacing(2.5) },
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingHorizontal: H_PAD, paddingBottom: theme.spacing(3) },
-    product: { width: PROD_SIZE, height: PROD_SIZE, borderRadius: theme.radius.md, padding: theme.spacing(2.5), justifyContent: 'space-between' },
-    unavailable: { opacity: 0.4 },
-    productName: { color: '#fff', fontWeight: '700', fontSize: 14 },
-    productPrice: { color: '#fff', fontWeight: '800', fontSize: 16 },
-    counter: {
-        position: 'absolute', top: 6, right: 6, minWidth: 26, height: 26, borderRadius: 13,
-        backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6,
-    },
-    counterText: { color: theme.colors.bg, fontWeight: '800', fontSize: 14 },
-    badge86: { position: 'absolute', top: 6, left: 8, color: '#fff', fontWeight: '800' },
     empty: { color: theme.colors.textMuted, padding: theme.spacing(4) },
 
     // Barre du bas
-    bottomBar: { flexDirection: 'row', gap: theme.spacing(3), paddingHorizontal: H_PAD, paddingTop: theme.spacing(2.5), paddingBottom: theme.spacing(2) },
-    orderBtn: { flex: 1, height: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.warning, borderRadius: theme.radius.md },
-    badgeNew: { backgroundColor: 'rgba(255,255,255,0.30)', minWidth: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 7 },
-    badgeCancel: { backgroundColor: theme.colors.danger, minWidth: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 7 },
-    badgeText: { color: '#fff', fontWeight: '800', fontSize: 14 },
-    cartBtn: { flex: 1, height: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.success, borderRadius: theme.radius.md },
-    btnDisabled: { backgroundColor: theme.colors.surfaceAlt, opacity: 0.6 },
-    btnText: { color: '#fff', fontSize: 18, fontWeight: '800' },
-    cartInfo: { position: 'absolute', right: 10, top: 8 },
-    cartInfoText: { color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: '700' },
+    bottomBar: { flexDirection: 'row', gap: theme.spacing(2.5), paddingHorizontal: H_PAD, paddingTop: theme.spacing(2.5), paddingBottom: theme.spacing(2) },
+    action: { flex: 1, height: 62, alignItems: 'center', justifyContent: 'center', gap: 2, borderRadius: theme.radius.md },
+    actionOn: { backgroundColor: theme.colors.success },
+    actionOff: { backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border },
+    actionLine: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2) },
+    actionText: { color: theme.colors.text, fontSize: 17, fontWeight: '800' },
+    actionTextOn: { color: '#04220F' },
+    actionSub: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
+    actionSubOn: { color: 'rgba(4,34,15,0.75)' },
+    btnDisabled: { opacity: 0.45 },
 });

@@ -7,11 +7,15 @@ import type { Product } from '../types';
  * Tuile d'un produit dans la grille de vente.
  *
  * Deux rendus, selon que le produit a un visuel :
- *  - AVEC image : elle occupe toute la tuile, le nom et le prix passent dans un
- *    bandeau sombre en bas. Les visuels sont normalisés en carré sur fond blanc
- *    côté serveur, donc un bandeau foncé reste lisible sur tous.
- *  - SANS image : la tuile colorée d'origine, inchangée. Aucune régression pour
- *    les produits qui n'auront jamais de photo (café, vin au verre…).
+ *  - AVEC image : elle occupe toute la tuile, le nom repose sur un voile sombre
+ *    en bas. Les visuels sont normalisés en carré côté serveur.
+ *  - SANS image : carte neutre au filet coloré. La couleur du produit distingue
+ *    la famille sans transformer la grille en aplat — un écran entier de tuiles
+ *    pleines n'offre aucun repère à l'œil, qui doit alors lire chaque case.
+ *
+ * Le nom tient sur DEUX lignes. Sur une tuile carrée d'iPhone, une seule ligne
+ * coupait les libellés au point de rendre deux plats indiscernables : « Duo de
+ * croquettes de… » pouvait désigner les crevettes comme le fromage.
  *
  * Performance : on utilise l'`Image` de React Native, pas un module natif —
  * l'application doit rester livrable par mise à jour OTA. Le cache disque du
@@ -26,16 +30,39 @@ interface Props {
     /** Libellé du prix (« 4,50 € » ou « Prix libre »). */
     price: string;
     /**
-     * Réglage d'établissement « Afficher le prix sur les produits ». Faux, le
-     * bandeau se réduit au nom et dégage de la hauteur pour le visuel. Par
-     * défaut vrai : une tuile sans prix ne doit jamais être un accident.
+     * Réglage d'établissement « Afficher le prix sur les produits ». Faux, la
+     * légende se réduit au nom et lui laisse toute la place. Par défaut vrai :
+     * une tuile sans prix ne doit jamais être un accident.
      */
     showPrice?: boolean;
     onPress: () => void;
 }
 
+/**
+ * Voile de lisibilité sous le nom, en dégradé.
+ *
+ * `expo-linear-gradient` est un module NATIF : l'ajouter imposerait une nouvelle
+ * build sur chaque appareil et nous priverait des mises à jour OTA. Deux calques
+ * d'opacité croissante suffisent à cette taille, en JavaScript pur — et deux, pas
+ * quatre : la grille rend TOUS les produits d'un coup (143 à la friterie), chaque
+ * vue supplémentaire y est multipliée d'autant. Un bandeau opaque, lui, amputait
+ * la photo d'un tiers.
+ */
+const VOILE = [0.35, 0.82];
+
+function Voile() {
+    return (
+        <View style={styles.voile} pointerEvents="none">
+            {VOILE.map((o, i) => (
+                <View key={i} style={[styles.voileBande, { backgroundColor: `rgba(0,0,0,${o})` }]} />
+            ))}
+        </View>
+    );
+}
+
 export function ProductTile({ product, size, qty, price, showPrice = true, onPress }: Props) {
     const hasImage = !!product.image_url;
+    const couleur = product.color ?? theme.colors.borderStrong;
 
     return (
         <Pressable
@@ -44,9 +71,11 @@ export function ProductTile({ product, size, qty, price, showPrice = true, onPre
             style={[
                 styles.tile,
                 { width: size, height: size },
-                // Fond blanc derrière un visuel : les images sont détourées sur
-                // blanc, la couleur du produit transparaîtrait sur les bords.
-                { backgroundColor: hasImage ? '#fff' : product.color ?? theme.colors.surface },
+                hasImage
+                    ? styles.tileImage
+                    // Le filet coloré tient sur le bord gauche : il suffit à ranger
+                    // le produit dans sa famille sans noyer la grille de couleur.
+                    : [styles.tilePlain, { borderLeftColor: couleur }],
                 !product.available && styles.unavailable,
             ]}
         >
@@ -60,14 +89,15 @@ export function ProductTile({ product, size, qty, price, showPrice = true, onPre
                         // vignettes donne une impression de lenteur.
                         fadeDuration={0}
                     />
-                    <View style={[styles.caption, !showPrice && styles.captionTight]}>
-                        <Text style={styles.captionName} numberOfLines={1}>{product.name}</Text>
+                    <Voile />
+                    <View style={styles.caption}>
+                        <Text style={styles.captionName} numberOfLines={2}>{product.name}</Text>
                         {showPrice && <Text style={styles.captionPrice}>{price}</Text>}
                     </View>
                 </>
             ) : (
-                <View style={[styles.plain, !showPrice && styles.plainCentered]}>
-                    <Text style={styles.plainName} numberOfLines={2}>{product.name}</Text>
+                <View style={styles.plain}>
+                    <Text style={styles.plainName} numberOfLines={3}>{product.name}</Text>
                     {showPrice && <Text style={styles.plainPrice}>{price}</Text>}
                 </View>
             )}
@@ -84,33 +114,45 @@ export function ProductTile({ product, size, qty, price, showPrice = true, onPre
 
 const styles = StyleSheet.create({
     tile: { borderRadius: theme.radius.md, overflow: 'hidden' },
+    tileImage: { backgroundColor: '#000' },
+    tilePlain: {
+        backgroundColor: theme.colors.surface,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        borderLeftWidth: 3,
+    },
     unavailable: { opacity: 0.4 },
 
     // Rendu avec visuel
+    voile: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '58%', justifyContent: 'flex-end' },
+    voileBande: { flex: 1 },
     caption: {
         position: 'absolute', left: 0, right: 0, bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.62)',
-        paddingHorizontal: theme.spacing(2), paddingVertical: theme.spacing(1.5),
+        paddingHorizontal: theme.spacing(1.5), paddingBottom: theme.spacing(1.5),
     },
-    // Sans prix, le bandeau n'a plus qu'une ligne à porter : on le resserre
-    // pour rendre au visuel la hauteur qu'occupait le chiffre.
-    captionTight: { paddingVertical: theme.spacing(1) },
-    captionName: { color: '#fff', fontWeight: '700', fontSize: 13 },
-    captionPrice: { color: '#fff', fontWeight: '800', fontSize: 14, marginTop: 1 },
+    captionName: {
+        color: '#fff', fontWeight: '600', fontSize: 12, lineHeight: 14, letterSpacing: -0.1,
+        textShadowColor: 'rgba(0,0,0,0.55)', textShadowRadius: 3,
+    },
+    captionPrice: {
+        color: '#fff', fontWeight: '800', fontSize: 13, marginTop: 2,
+        fontVariant: ['tabular-nums'],
+    },
 
-    // Rendu sans visuel (tuile d'origine)
-    plain: { flex: 1, padding: theme.spacing(2.5), justifyContent: 'space-between' },
-    // Le nom seul, calé en haut, laisserait un grand vide sous lui.
-    plainCentered: { justifyContent: 'center' },
-    plainName: { color: '#fff', fontWeight: '700', fontSize: 14 },
-    plainPrice: { color: '#fff', fontWeight: '800', fontSize: 15 },
+    // Rendu sans visuel
+    plain: { flex: 1, padding: theme.spacing(2), justifyContent: 'space-between' },
+    plainName: { color: theme.colors.text, fontWeight: '600', fontSize: 12, lineHeight: 14 },
+    plainPrice: {
+        color: theme.colors.textMuted, fontWeight: '800', fontSize: 13, textAlign: 'right',
+        fontVariant: ['tabular-nums'],
+    },
 
     counter: {
         position: 'absolute', top: 6, right: 6, minWidth: 26, height: 26, borderRadius: 13,
         backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6,
         borderWidth: 1, borderColor: theme.colors.border,
     },
-    counterText: { color: theme.colors.bg, fontWeight: '800', fontSize: 14 },
+    counterText: { color: theme.colors.bg, fontWeight: '800', fontSize: 14, fontVariant: ['tabular-nums'] },
     badge86: {
         position: 'absolute', top: 6, left: 8, color: '#fff', fontWeight: '800',
         textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 3,

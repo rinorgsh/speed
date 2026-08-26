@@ -77,7 +77,7 @@ export function PinScreen({ navigation, route }: NativeStackScreenProps<RootStac
                     ))}
                 </View>
             </View>
-            <Keypad onKey={onKey} onDelete={() => setPin((p) => p.slice(0, -1))} />
+            <Keypad decimal={false} onKey={onKey} onDelete={() => setPin((p) => p.slice(0, -1))} />
         </Screen>
     );
 }

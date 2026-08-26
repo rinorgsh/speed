@@ -7,12 +7,21 @@ import { theme } from '../theme';
 /**
  * Pavé numérique. `compact` plafonne la taille des touches : sur une tablette,
  * 31 % de la largeur donnerait des touches démesurées.
+ *
+ * `decimal` retire la virgule là où elle n'a aucun sens. Sur l'écran de code
+ * PIN, la touche existait et était ignorée en silence : un bouton qui ne fait
+ * rien apprend à l'utilisateur que l'écran ne répond pas toujours.
  */
-export function Keypad({ onKey, onDelete, compact = false }: { onKey: (digit: string) => void; onDelete: () => void; compact?: boolean }) {
-    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'del'];
+export function Keypad({ onKey, onDelete, compact = false, decimal = true }: { onKey: (digit: string) => void; onDelete: () => void; compact?: boolean; decimal?: boolean }) {
+    const keys = decimal
+        ? ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'del']
+        : ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'];
     return (
         <View style={styles.grid}>
-            {keys.map((k) => (
+            {keys.map((k, i) => (k === '' ? (
+                // Emplacement laissé vide : la grille garde son alignement 3×4.
+                <View key={`vide-${i}`} style={[styles.key, styles.keyVide, compact && styles.keyCompact]} />
+            ) : (
                 <Pressable
                     key={k}
                     onPress={() => (k === 'del' ? onDelete() : onKey(k))}
@@ -24,7 +33,7 @@ export function Keypad({ onKey, onDelete, compact = false }: { onKey: (digit: st
                         <Text style={styles.keyText}>{k}</Text>
                     )}
                 </Pressable>
-            ))}
+            )))}
         </View>
     );
 }
@@ -43,6 +52,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     keyCompact: { maxWidth: 150, aspectRatio: 1.7 },
+    keyVide: { backgroundColor: 'transparent', borderColor: 'transparent' },
     keyPressed: { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.borderStrong },
     keyText: { color: theme.colors.text, fontSize: 42, fontWeight: '700' },
 });
