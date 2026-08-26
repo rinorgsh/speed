@@ -18,18 +18,35 @@
  *     appel est isolé — un retour tactile absent ne doit JAMAIS empêcher une
  *     commande de partir.
  *
- * `expo-haptics` s'appuie lui-même sur `requireOptionalNativeModule`, donc son
- * import ne lève rien : contrairement à `expo-screen-orientation`, il ne peut
- * pas faire planter le démarrage. Le contrôle reste par cohérence.
  */
-import * as Haptics from 'expo-haptics';
-
+/*
+ * Chargement PARESSEUX, et non `import * as Haptics from 'expo-haptics'`.
+ *
+ * `expo-haptics` s'appuie sur `requireOptionalNativeModule`, qui renvoie null
+ * plutôt que de lever : un import statique serait déjà sans danger. Mais
+ * `expo-screen-orientation`, lui, utilise `requireNativeModule` — et c'est ce
+ * qui a arrêté net l'application le 14/08/2026 sur les binaires dépourvus du
+ * module. On applique donc la même règle partout, sans se fier au détail
+ * d'implémentation d'un paquet tiers qui peut changer de version en version.
+ *
+ * Conséquence pratique : le MÊME bundle tourne sur un binaire qui embarque le
+ * module comme sur un binaire qui ne l'a pas. Un seul code à publier.
+ */
+let module_: typeof import('expo-haptics') | null = null;
 let disponible: boolean | null = null;
 
 function actif(): boolean {
     if (disponible === null) {
         const modules = (globalThis as any)?.expo?.modules;
         disponible = !!modules?.ExpoHaptics;
+        if (disponible) {
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                module_ = require('expo-haptics');
+            } catch {
+                disponible = false;
+            }
+        }
         if (!disponible) {
             console.log('[haptique] module absent de ce binaire — retours tactiles désactivés');
         }
@@ -38,10 +55,10 @@ function actif(): boolean {
 }
 
 /** Enveloppe tout appel : le tactile est un confort, jamais une dépendance. */
-function sansRisque(fn: () => Promise<void>): void {
-    if (!actif()) return;
+function sansRisque(fn: (h: typeof import('expo-haptics')) => Promise<void>): void {
+    if (!actif() || !module_) return;
     try {
-        void fn().catch(() => {});
+        void fn(module_).catch(() => {});
     } catch {
         /* Le Taptic Engine est indisponible (mode économie d'énergie, réglage
            utilisateur, appareil photo actif) : on continue sans. */
@@ -50,20 +67,20 @@ function sansRisque(fn: () => Promise<void>): void {
 
 /** Article ajouté au ticket. Le geste le plus fréquent du service. */
 export function ajout(): void {
-    sansRisque(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    sansRisque((h) => h.impactAsync(h.ImpactFeedbackStyle.Light));
 }
 
 /** Changement d'onglet, sélection d'une ligne : une tape sèche et discrète. */
 export function selection(): void {
-    sansRisque(() => Haptics.selectionAsync());
+    sansRisque((h) => h.selectionAsync());
 }
 
 /** Commande envoyée en cuisine, paiement accepté. */
 export function reussite(): void {
-    sansRisque(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+    sansRisque((h) => h.notificationAsync(h.NotificationFeedbackType.Success));
 }
 
 /** Envoi refusé, imprimante injoignable, paiement incomplet. */
 export function echec(): void {
-    sansRisque(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error));
+    sansRisque((h) => h.notificationAsync(h.NotificationFeedbackType.Error));
 }
