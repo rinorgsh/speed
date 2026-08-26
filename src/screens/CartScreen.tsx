@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Delete, Send, CreditCard, Sliders, MessageSquare } from 'lucide-react-native';
@@ -34,10 +34,26 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
 
     const lines = order ? order.lines.filter((l) => !l.voided && l.qty > 0) : [];
 
-    // Sélection valide : sinon la 1re ligne.
+    /*
+     * Sélection automatique à l'AJOUT d'une ligne seulement — on veut pouvoir
+     * ajuster la quantité du produit qu'on vient de poser sans un geste de plus.
+     *
+     * Mais PAS dès que la sélection est vide : cet effet annulait aussitôt toute
+     * désélection volontaire, et le pavé restait donc affiché en permanence dès
+     * qu'un article était au panier.
+     */
+    const nombrePrecedent = useRef(0);
     useEffect(() => {
-        if (!lines.length) { if (selectedId) setSelectedId(null); return; }
-        if (!selectedId || !lines.some((l) => l.id === selectedId)) {
+        if (!lines.length) {
+            if (selectedId) setSelectedId(null);
+            nombrePrecedent.current = 0;
+            return;
+        }
+        const ajout = lines.length > nombrePrecedent.current;
+        nombrePrecedent.current = lines.length;
+        // La ligne visée a disparu (supprimée, fusionnée) : on retombe sur la dernière.
+        const orpheline = selectedId !== null && !lines.some((l) => l.id === selectedId);
+        if (ajout || orpheline) {
             setSelectedId(lines[lines.length - 1].id);
         }
     }, [lines, selectedId]);
@@ -54,7 +70,7 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
     const pendingCancel = order.lines.reduce((s, l) => s + Math.max(0, l.sent_qty - l.qty), 0);
     const canSend = pendingNew > 0 || pendingCancel > 0;
 
-    const selectLine = (id: string) => { setSelectedId(id); setTyping(false); setBuffer(''); };
+    const selectLine = (id: string) => { setSelectedId((prev) => (prev === id ? null : id)); setTyping(false); setBuffer(''); };
     const selectMode = (m: Mode) => { setMode(m); setTyping(false); setBuffer(''); };
 
     const apply = (value: number) => {
@@ -245,7 +261,7 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
                 </>
             ) : (
                 lines.length > 0 && (
-                    <Text style={styles.padHint}>{t('Touchez une ligne pour modifier la quantité')}</Text>
+                    <Text style={styles.padHint}>{t('Touchez une ligne pour modifier sa quantité ou son prix')}</Text>
                 )
             )}
 
@@ -319,7 +335,8 @@ const styles = StyleSheet.create({
     modeCellOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     modeText: { color: theme.colors.textMuted, fontSize: 15, fontWeight: '700' },
     modeTextOn: { color: theme.colors.onPrimary },
-    backCell: { backgroundColor: theme.colors.dangerSoft, borderWidth: 1, borderColor: theme.colors.danger },
+    // Effacer un chiffre est un geste banal : le cercle rouge en faisait une alerte.
+    backCell: { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
 
     secondaryRow: { flexDirection: 'row', gap: theme.spacing(2), paddingHorizontal: theme.spacing(3), paddingTop: theme.spacing(2) },
     secondaryBtn: { flex: 1, height: 46, flexDirection: 'row', gap: theme.spacing(2), alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface, borderRadius: theme.radius.sm, borderWidth: 1, borderColor: theme.colors.border },

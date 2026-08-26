@@ -39,26 +39,18 @@ interface Props {
 }
 
 /**
- * Voile de lisibilité sous le nom, en dégradé.
+ * Voile de lisibilité sous le nom.
  *
- * `expo-linear-gradient` est un module NATIF : l'ajouter imposerait une nouvelle
- * build sur chaque appareil et nous priverait des mises à jour OTA. Deux calques
- * d'opacité croissante suffisent à cette taille, en JavaScript pur — et deux, pas
- * quatre : la grille rend TOUS les produits d'un coup (143 à la friterie), chaque
- * vue supplémentaire y est multipliée d'autant. Un bandeau opaque, lui, amputait
- * la photo d'un tiers.
+ * Un PNG de 2×96 px — 320 octets — allant du transparent au noir, étiré par
+ * l'`Image` de React Native. Une seule vue, un dégradé PARFAIT sur n'importe
+ * quel fond, et aucun module natif : `expo-linear-gradient` imposerait une
+ * nouvelle build sur chaque appareil et nous priverait des mises à jour OTA.
+ *
+ * La première tentative empilait deux calques d'opacité fixe. Sur une photo
+ * sombre ça passait ; sur les visuels de cocktails, détourés sur blanc, les deux
+ * calques ressortaient en BANDES GRISES franches en travers du verre.
  */
-const VOILE = [0.35, 0.82];
-
-function Voile() {
-    return (
-        <View style={styles.voile} pointerEvents="none">
-            {VOILE.map((o, i) => (
-                <View key={i} style={[styles.voileBande, { backgroundColor: `rgba(0,0,0,${o})` }]} />
-            ))}
-        </View>
-    );
-}
+const VOILE_URI = 'data:image/png;base64,';
 
 export function ProductTile({ product, size, qty, price, showPrice = true, onPress }: Props) {
     const hasImage = !!product.image_url;
@@ -89,15 +81,17 @@ export function ProductTile({ product, size, qty, price, showPrice = true, onPre
                         // vignettes donne une impression de lenteur.
                         fadeDuration={0}
                     />
-                    <Voile />
+                    <Image source={{ uri: VOILE_URI }} style={styles.voile} resizeMode="stretch" />
                     <View style={styles.caption}>
                         <Text style={styles.captionName} numberOfLines={2}>{product.name}</Text>
                         {showPrice && <Text style={styles.captionPrice}>{price}</Text>}
                     </View>
                 </>
             ) : (
-                <View style={styles.plain}>
-                    <Text style={styles.plainName} numberOfLines={3}>{product.name}</Text>
+                <View style={[styles.plain, !showPrice && styles.plainCentre]}>
+                    <Text style={[styles.plainName, !showPrice && styles.plainNameBig]} numberOfLines={4}>
+                        {product.name}
+                    </Text>
                     {showPrice && <Text style={styles.plainPrice}>{price}</Text>}
                 </View>
             )}
@@ -124,14 +118,13 @@ const styles = StyleSheet.create({
     unavailable: { opacity: 0.4 },
 
     // Rendu avec visuel
-    voile: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '58%', justifyContent: 'flex-end' },
-    voileBande: { flex: 1 },
+    voile: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '52%' },
     caption: {
         position: 'absolute', left: 0, right: 0, bottom: 0,
         paddingHorizontal: theme.spacing(1.5), paddingBottom: theme.spacing(1.5),
     },
     captionName: {
-        color: '#fff', fontWeight: '600', fontSize: 12, lineHeight: 14, letterSpacing: -0.1,
+        color: '#fff', fontWeight: '700', fontSize: 13, lineHeight: 15, letterSpacing: -0.1,
         textShadowColor: 'rgba(0,0,0,0.55)', textShadowRadius: 3,
     },
     captionPrice: {
@@ -140,8 +133,12 @@ const styles = StyleSheet.create({
     },
 
     // Rendu sans visuel
-    plain: { flex: 1, padding: theme.spacing(2), justifyContent: 'space-between' },
-    plainName: { color: theme.colors.text, fontWeight: '600', fontSize: 12, lineHeight: 14 },
+    plain: { flex: 1, padding: theme.spacing(2.5), justifyContent: 'space-between' },
+    // Prix masqué : plus rien à caler en bas, le nom se centre au lieu de flotter
+    // en haut d'une carte vide.
+    plainCentre: { justifyContent: 'center' },
+    plainName: { color: theme.colors.text, fontWeight: '600', fontSize: 14, lineHeight: 17 },
+    plainNameBig: { fontSize: 16, lineHeight: 19, fontWeight: '700' },
     plainPrice: {
         color: theme.colors.textMuted, fontWeight: '800', fontSize: 13, textAlign: 'right',
         fontVariant: ['tabular-nums'],
