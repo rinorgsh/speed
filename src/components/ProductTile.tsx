@@ -60,7 +60,9 @@ export function ProductTile({ product, size, qty, price, showPrice = true, onPre
         <Pressable
             onPress={onPress}
             disabled={!product.available}
-            style={[
+            // La tuile ne réagissait pas du tout sous le doigt. Avec le retour
+            // tactile c'est le second signal que l'article est bien passé.
+            style={({ pressed }) => [
                 styles.tile,
                 { width: size, height: size },
                 hasImage
@@ -69,6 +71,7 @@ export function ProductTile({ product, size, qty, price, showPrice = true, onPre
                     // le produit dans sa famille sans noyer la grille de couleur.
                     : [styles.tilePlain, { borderLeftColor: couleur }],
                 !product.available && styles.unavailable,
+                pressed && styles.tilePressed,
             ]}
         >
             {hasImage ? (
@@ -116,6 +119,7 @@ const styles = StyleSheet.create({
         borderLeftWidth: 3,
     },
     unavailable: { opacity: 0.4 },
+    tilePressed: { opacity: 0.72, transform: [{ scale: 0.96 }] },
 
     // Rendu avec visuel
     // 44 % : deux lignes de nom en demandent 35, et le visuel garde sa lumière.

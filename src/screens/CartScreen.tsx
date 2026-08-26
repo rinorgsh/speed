@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Delete, Send, CreditCard, Sliders, MessageSquare } from 'lucide-react-native';
+import { CreditCard, Delete, MessageSquare, Send, ShoppingCart, Sliders } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
 import { LineActionsSheet } from '../components/LineActionsSheet';
 import { LineNoteModal } from '../components/LineNoteModal';
 import { theme } from '../theme';
 import * as haptique from '../services/haptique';
+import { transition } from '../utils/animation';
 import { useCart } from '../store/useCart';
 import { useT } from '../i18n';
 import { printKitchen } from '../services/printing';
@@ -71,7 +72,15 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
     const pendingCancel = order.lines.reduce((s, l) => s + Math.max(0, l.sent_qty - l.qty), 0);
     const canSend = pendingNew > 0 || pendingCancel > 0;
 
-    const selectLine = (id: string) => { haptique.selection(); setSelectedId((prev) => (prev === id ? null : id)); setTyping(false); setBuffer(''); };
+    const selectLine = (id: string) => {
+        haptique.selection();
+        // Le pavé apparaît ou se retire : sans transition il surgit sans qu'on
+        // relie le geste à l'effet.
+        transition();
+        setSelectedId((prev) => (prev === id ? null : id));
+        setTyping(false);
+        setBuffer('');
+    };
     const selectMode = (m: Mode) => { setMode(m); setTyping(false); setBuffer(''); };
 
     const apply = (value: number) => {
@@ -171,7 +180,14 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
                         </Pressable>
                     );
                 })}
-                {!lines.length && <Text style={styles.empty}>Panier vide.</Text>}
+                {/* Un état vide dit ce qu'il faut faire, pas seulement qu'il n'y a rien. */}
+                {!lines.length && (
+                    <View style={styles.emptyBox}>
+                        <ShoppingCart color={theme.colors.textFaint} size={38} strokeWidth={1.5} />
+                        <Text style={styles.emptyTitle}>{t('Aucun article')}</Text>
+                        <Text style={styles.empty}>{t('Revenez à la carte pour composer la commande.')}</Text>
+                    </View>
+                )}
             </ScrollView>
 
             {/* Sur place / Emporter. Absent du parcours téléphone jusqu'ici : la
@@ -299,7 +315,9 @@ const styles = StyleSheet.create({
     noteRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(1.5), marginTop: 3 },
     lineNote: { color: theme.colors.warning, fontSize: 12, fontStyle: 'italic', flex: 1 },
     lineTotal: { color: theme.colors.text, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] },
-    empty: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing(8) },
+    emptyBox: { alignItems: 'center', gap: theme.spacing(2), marginTop: theme.spacing(12), paddingHorizontal: theme.spacing(8) },
+    emptyTitle: { ...theme.font.heading, color: theme.colors.textMuted },
+    empty: { ...theme.font.body, color: theme.colors.textFaint, textAlign: 'center' },
 
     // Sur place / Emporter : segmenté compact, au-dessus des totaux qu'il fait varier.
     svcRow: {

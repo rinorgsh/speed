@@ -51,16 +51,31 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
     const q = searchActive ? search.trim().toLowerCase() : '';
     const shown = q ? allProducts.filter((p) => p.name.toLowerCase().includes(q)) : products;
 
+    /*
+     * L'en-tête porte la TABLE, pas le mot « Commande ».
+     *
+     * Un serveur qui revient d'une autre table doit pouvoir vérifier d'un coup
+     * d'œil où il se trouve avant d'ajouter quoi que ce soit. Le titre figé ne
+     * le disait pas, et rien d'autre à l'écran ne le rappelait.
+     */
+    const tables = useConfig((s) => s.tables);
+    const titre = useMemo(() => {
+        if (!order?.table_id) return 'Comptoir';
+        const t = tables.find((x) => x.id === order.table_id);
+        return t ? `Table ${t.label}` : 'Commande';
+    }, [order?.table_id, tables]);
+
     // Loupe dans l'en-tête de navigation : n'occupe aucune place à l'écran.
     useLayoutEffect(() => {
         navigation.setOptions({
+            title: titre,
             headerRight: () => (
                 <Pressable onPress={() => setSearchActive((v) => !v)} hitSlop={10} style={styles.searchBtn}>
                     <Search color={theme.colors.text} size={24} />
                 </Pressable>
             ),
         });
-    }, [navigation]);
+    }, [navigation, titre]);
     useEffect(() => { if (!searchActive) setSearch(''); }, [searchActive]);
 
     const counts = useMemo(() => {
@@ -144,8 +159,19 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
                             big ? styles.cat : styles.subcat,
                             // Le premier niveau se remplit de la couleur de la famille ;
                             // le second reste sourd, pour qu'on sache à quel étage on est.
+                            /*
+                                La couleur de la famille en LISERÉ, pas en aplat.
+                                Un onglet rouge vif et un bleu vif étaient les seules
+                                taches saturées de l'application ; ils juraient avec
+                                la sobriété du reste et écrasaient la grille. Le
+                                liseré garde le repère, sans le crier.
+                            */
                             big
-                                ? { backgroundColor: active ? (c.color ?? theme.colors.surfaceAlt) : theme.colors.surface }
+                                ? {
+                                    backgroundColor: active ? theme.colors.surfaceAlt : theme.colors.surface,
+                                    borderBottomWidth: 3,
+                                    borderBottomColor: active ? (c.color ?? theme.colors.primary) : 'transparent',
+                                }
                                 : { backgroundColor: active ? theme.colors.surfaceAlt : theme.colors.bg, borderColor: active ? theme.colors.borderStrong : theme.colors.border },
                         ]}
                     >
@@ -272,18 +298,18 @@ const styles = StyleSheet.create({
     catScroll: { flexGrow: 0, paddingTop: theme.spacing(2.5) },
     subScroll: { flexGrow: 0, paddingTop: theme.spacing(2) },
     tabScrollContent: { gap: GAP, paddingHorizontal: H_PAD },
-    cat: { height: 56, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.spacing(6) },
+    cat: { height: 52, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.spacing(6) },
     subcat: { height: 44, borderRadius: theme.radius.sm, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.spacing(4.5), borderWidth: 1, borderColor: theme.colors.border },
-    catText: { fontWeight: '800', fontSize: 16, letterSpacing: -0.2 },
-    subcatText: { fontWeight: '700', fontSize: 14 },
-    tabTextActive: { color: theme.colors.onAccent },
+    catText: { ...theme.font.heading },
+    subcatText: { ...theme.font.label, fontSize: 14 },
+    tabTextActive: { color: theme.colors.text },
     tabTextIdle: { color: theme.colors.textMuted },
 
     // Produits
     gridScroll: { flex: 1, marginTop: theme.spacing(2.5) },
     grid: { gap: GAP, paddingHorizontal: H_PAD, paddingBottom: theme.spacing(3) },
     gridRow: { gap: GAP },
-    empty: { color: theme.colors.textMuted, padding: theme.spacing(4) },
+    empty: { ...theme.font.body, color: theme.colors.textFaint, textAlign: 'center', paddingVertical: theme.spacing(10) },
 
     // Barre du bas
     bottomBar: { flexDirection: 'row', gap: theme.spacing(2.5), paddingHorizontal: H_PAD, paddingTop: theme.spacing(2.5), paddingBottom: theme.spacing(2) },
@@ -291,9 +317,9 @@ const styles = StyleSheet.create({
     actionOn: { backgroundColor: theme.colors.success },
     actionOff: { backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border },
     actionLine: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2) },
-    actionText: { color: theme.colors.text, fontSize: 17, fontWeight: '800' },
+    actionText: { ...theme.font.heading, color: theme.colors.text, fontSize: 17, fontWeight: '800' },
     actionTextOn: { color: '#04220F' },
-    actionSub: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
+    actionSub: { ...theme.font.chiffres, color: theme.colors.textMuted, fontSize: 12, fontWeight: '700' },
     actionSubOn: { color: 'rgba(4,34,15,0.75)' },
     btnDisabled: { opacity: 0.45 },
 });

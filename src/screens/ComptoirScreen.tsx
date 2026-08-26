@@ -267,7 +267,16 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
             {items.map((c) => {
                 const active = activeId === c.id;
                 return (
-                    <Pressable key={c.id} onPress={() => onSelect(c.id)} style={[styles.tab, active && { backgroundColor: c.color ?? theme.colors.surfaceAlt, borderColor: c.color ?? theme.colors.borderStrong }]}>
+                    <Pressable key={c.id} onPress={() => onSelect(c.id)} style={[
+                        styles.tab,
+                        // Liseré et non aplat : même parti que sur le téléphone.
+                        active && {
+                            backgroundColor: theme.colors.surfaceAlt,
+                            borderColor: theme.colors.borderStrong,
+                            borderBottomWidth: 3,
+                            borderBottomColor: c.color ?? theme.colors.primary,
+                        },
+                    ]}>
                         <Text style={[styles.tabText, active && styles.tabTextActive]}>{c.name}</Text>
                     </Pressable>
                 );
@@ -539,8 +548,8 @@ const styles = StyleSheet.create({
 
     tabsContent: { gap: 8, paddingVertical: theme.spacing(1.5) },
     tab: { height: 48, paddingHorizontal: theme.spacing(4), borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
-    tabText: { color: theme.colors.textMuted, fontWeight: '800', fontSize: 15 },
-    tabTextActive: { color: theme.colors.onAccent },
+    tabText: { ...theme.font.label, color: theme.colors.textMuted, fontSize: 15, fontWeight: '700' },
+    tabTextActive: { color: theme.colors.text, fontWeight: '800' },
 
     grid: { flexDirection: 'row', flexWrap: 'wrap', paddingBottom: theme.spacing(3) },
     unavailable: { opacity: 0.4 },
@@ -555,7 +564,7 @@ const styles = StyleSheet.create({
     badgeText: { color: '#fff', fontWeight: '800', fontSize: 14 },
     cartInfo: { position: 'absolute', right: 10, top: 8 },
     cartInfoText: { color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: '700' },
-    empty: { color: theme.colors.textMuted, padding: theme.spacing(4) },
+    empty: { ...theme.font.body, color: theme.colors.textFaint, textAlign: 'center', paddingVertical: theme.spacing(10) },
 
     // Ticket
     ticket: { backgroundColor: theme.colors.bgElevated, borderLeftWidth: 1, borderColor: theme.colors.border, paddingHorizontal: theme.spacing(3), paddingTop: theme.spacing(2.5) },
@@ -573,22 +582,22 @@ const styles = StyleSheet.create({
     lineMeta: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600', marginTop: 1 },
     lineNote: { color: theme.colors.warning, fontSize: 11, fontStyle: 'italic', marginTop: 2 },
     metaOn: { color: theme.colors.text, fontWeight: '800' },
-    lineTotal: { color: theme.colors.text, fontWeight: '800', fontSize: 15 },
+    lineTotal: { ...theme.font.chiffres, color: theme.colors.text, fontWeight: '800', fontSize: 15 },
     tEmpty: { color: theme.colors.textMuted, textAlign: 'center', marginTop: theme.spacing(8), paddingHorizontal: theme.spacing(4) },
 
     totals: { paddingVertical: theme.spacing(2.5), borderTopWidth: 1, borderColor: theme.colors.border },
     totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
     taxLabel: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600' },
     taxValue: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600' },
-    totalLabel: { color: theme.colors.text, fontSize: 15, fontWeight: '700', marginTop: 2 },
-    totalValue: { color: theme.colors.text, fontSize: 24, fontWeight: '800', letterSpacing: -0.5, marginTop: 2 },
+    totalLabel: { ...theme.font.caption, color: theme.colors.textFaint },
+    totalValue: { ...theme.font.chiffres, color: theme.colors.text, fontSize: 24, fontWeight: '800', letterSpacing: -0.5, marginTop: 2 },
 
     pad: { paddingTop: theme.spacing(2), gap: theme.spacing(2) },
     padRow: { flexDirection: 'row', gap: theme.spacing(2) },
     padCell: { flex: 1, height: 46, borderRadius: theme.radius.sm, alignItems: 'center', justifyContent: 'center' },
     digitCell: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
     digitPressed: { backgroundColor: theme.colors.surfaceAlt },
-    digitText: { color: theme.colors.text, fontSize: 22, fontWeight: '700' },
+    digitText: { ...theme.font.chiffres, color: theme.colors.text, fontSize: 22, fontWeight: '700' },
     modeCell: { backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border },
     modeCellOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     modeText: { color: theme.colors.textMuted, fontSize: 14, fontWeight: '700' },

@@ -51,10 +51,39 @@ export const theme = {
             elevation: 4,
         },
     },
+    /**
+     * Échelle typographique — SOURCE DE VÉRITÉ.
+     *
+     * Ces jetons existaient déjà mais n'étaient utilisés nulle part : chaque
+     * écran redéfinissait ses tailles et ses graisses à la main, et tout
+     * finissait en 700-800. Quand tout crie, plus rien ne ressort.
+     *
+     * Deux règles tiennent l'ensemble :
+     *  - le texte courant reste en 500 ; le gras est réservé à ce qui compte ;
+     *  - un montant se lit en colonne, donc TOUJOURS en chiffres tabulaires —
+     *    sans quoi le « 1 » est plus étroit que le « 8 » et les prix dansent.
+     */
     font: {
-        title: { fontSize: 26, fontWeight: '800' as const, letterSpacing: -0.4 },
-        heading: { fontSize: 20, fontWeight: '800' as const, letterSpacing: -0.2 },
+        /** Le montant d'un paiement, le total d'une addition. Un seul par écran. */
+        display: { fontSize: 32, fontWeight: '800' as const, letterSpacing: -0.6 },
+        /** Titre d'écran. */
+        title: { fontSize: 24, fontWeight: '800' as const, letterSpacing: -0.4 },
+        /** Titre de section, nom de salle. */
+        heading: { fontSize: 19, fontWeight: '700' as const, letterSpacing: -0.2 },
+        /** Texte courant. */
         body: { fontSize: 15, fontWeight: '500' as const },
+        /** Texte courant qu'on veut détacher, sans passer au gras de titre. */
+        bodyStrong: { fontSize: 15, fontWeight: '700' as const },
+        /** Libellé de champ, nom sur une tuile. */
         label: { fontSize: 13, fontWeight: '600' as const },
+        /** Sur-titre discret : « TOTAL », « TAXES ». */
+        caption: {
+            fontSize: 11,
+            fontWeight: '700' as const,
+            letterSpacing: 1,
+            textTransform: 'uppercase' as const,
+        },
+        /** À combiner avec les précédents dès qu'il s'agit d'un nombre. */
+        chiffres: { fontVariant: ['tabular-nums'] as ('tabular-nums')[] },
     },
 };

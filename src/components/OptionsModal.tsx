@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { Button } from './Button';
 import { theme } from '../theme';
 import { useConfig } from '../store/useConfig';
@@ -20,6 +20,7 @@ export function OptionsModal({
     onClose: () => void;
     onConfirm: (options: SelectedOption[], qty: number, note: string | null) => void;
 }) {
+    const { height: hauteurEcran } = useWindowDimensions();
     const optionGroup = useConfig((s) => s.optionGroup);
     const [selected, setSelected] = useState<Record<number, number[]>>({});
     const [qty, setQty] = useState(1);
@@ -73,7 +74,10 @@ export function OptionsModal({
             <Pressable style={styles.backdrop} onPress={onClose}>
                 <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
                     <Text style={styles.title}>{product.name}</Text>
-                    <ScrollView style={{ maxHeight: 360 }}>
+                    {/* Hauteur relative à l'écran : 360 px figés débordaient sur un
+                        petit iPhone une fois le titre, la quantité et les boutons ajoutés,
+                        et gaspillaient la place sur un grand. */}
+                    <ScrollView style={{ maxHeight: hauteurEcran * 0.46 }}>
                         {groups.map((g) => (
                             <View key={g!.id} style={styles.group}>
                                 <Text style={styles.groupTitle}>
@@ -127,7 +131,7 @@ const styles = StyleSheet.create({
     groupTitle: { color: theme.colors.text, fontWeight: '700', marginBottom: theme.spacing(2.5) },
     groupHint: { color: theme.colors.textMuted, fontWeight: '400', fontSize: 12 },
     options: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing(2.5) },
-    chip: { paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(2.5), borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
+    chip: { paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(3), borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
     chipOn: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
     chipText: { color: theme.colors.textMuted, fontWeight: '600' },
     chipTextOn: { color: theme.colors.onPrimary, fontWeight: '700' },
@@ -137,6 +141,6 @@ const styles = StyleSheet.create({
     qtyControls: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(4) },
     qtyBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' },
     qtyBtnText: { color: theme.colors.text, fontSize: 24, fontWeight: '800' },
-    qtyValue: { color: theme.colors.text, fontSize: 20, fontWeight: '800', minWidth: 28, textAlign: 'center' },
+    qtyValue: { color: theme.colors.text, fontSize: 20, fontWeight: '800', minWidth: 28, textAlign: 'center', fontVariant: ['tabular-nums'] },
     actions: { flexDirection: 'row', gap: theme.spacing(3) },
 });
