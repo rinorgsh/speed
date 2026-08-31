@@ -173,7 +173,20 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
                     const enAttente = l.qty - l.sent_qty;
                     const toutEnvoye = l.sent_qty > 0 && enAttente === 0;
                     return (
-                        <Pressable key={l.id} onPress={() => selectLine(l.id)} style={[styles.line, isSel && styles.lineSelected]}>
+                        <Pressable
+                            key={l.id}
+                            onPress={() => selectLine(l.id)}
+                            style={[
+                                styles.line,
+                                // Toute la ligne se teinte : ce qui part en cuisine se
+                                // repère d'un coup d'œil, sans lire.
+                                enAttente > 0 && styles.ligneAEnvoyer,
+                                enAttente < 0 && styles.ligneAAnnuler,
+                                // La sélection ne change QUE le contour, pour ne pas
+                                // effacer la teinte d'état de la ligne visée.
+                                isSel && styles.lineSelected,
+                            ]}
+                        >
                             {/* Le filet porte l'ÉTAT ; le contour, lui, porte la sélection.
                                 Deux informations distinctes, deux signaux distincts. */}
                             <View style={[
@@ -338,8 +351,16 @@ const styles = StyleSheet.create({
     list: { flex: 1 },
     listContent: { padding: theme.spacing(3), gap: theme.spacing(2.5) },
     line: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing(3.5), gap: theme.spacing(3), borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' },
-    lineSelected: { borderColor: theme.colors.primary, backgroundColor: theme.colors.surfaceAlt },
+    lineSelected: { borderColor: theme.colors.primary, borderWidth: 2 },
     accent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: 'transparent' },
+    /*
+     * Fond teinté, pas vert plein : sur fond sombre, un aplat saturé rendrait le
+     * nom du produit et le prix illisibles. 22 % suffisent à faire ressortir la
+     * ligne sans sacrifier la lecture.
+     */
+    ligneAEnvoyer: { backgroundColor: 'rgba(34,197,94,0.22)', borderColor: 'rgba(34,197,94,0.45)' },
+    ligneAAnnuler: { backgroundColor: 'rgba(240,68,82,0.20)', borderColor: 'rgba(240,68,82,0.45)' },
+
     // Vert : part en cuisine au prochain envoi. Rouge : à annuler.
     accentAEnvoyer: { backgroundColor: theme.colors.success },
     accentAAnnuler: { backgroundColor: theme.colors.danger },
