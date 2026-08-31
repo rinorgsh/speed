@@ -159,12 +159,35 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
             <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
                 {lines.map((l) => {
                     const isSel = l.id === selectedId;
+                    /*
+                     * Ce qui reste à faire partir en cuisine sur CETTE ligne.
+                     * Positif : des unités attendent d'être envoyées. Négatif :
+                     * on en a retiré après envoi, il faut annuler.
+                     *
+                     * Le libellé « envoyé » s'affichait dès qu'UNE seule unité
+                     * était partie : une ligne à 2 envoyés et 1 en attente
+                     * paraissait donc entièrement traitée. C'est précisément le
+                     * moment où un serveur reprend une table et ne sait plus ce
+                     * qu'il vient d'ajouter.
+                     */
+                    const enAttente = l.qty - l.sent_qty;
+                    const toutEnvoye = l.sent_qty > 0 && enAttente === 0;
                     return (
                         <Pressable key={l.id} onPress={() => selectLine(l.id)} style={[styles.line, isSel && styles.lineSelected]}>
-                            <View style={[styles.accent, isSel && styles.accentOn]} />
+                            {/* Le filet porte l'ÉTAT ; le contour, lui, porte la sélection.
+                                Deux informations distinctes, deux signaux distincts. */}
+                            <View style={[
+                                styles.accent,
+                                enAttente > 0 && styles.accentAEnvoyer,
+                                enAttente < 0 && styles.accentAAnnuler,
+                            ]} />
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.lineName}>{l.name_snapshot}</Text>
-                                <Text style={styles.lineMeta}>{fmt(l.qty)} × {l.unit_price_snapshot.toFixed(2)} €{l.sent_qty > 0 ? '  • envoyé' : ''}</Text>
+                                <Text style={styles.lineMeta}>
+                                    {fmt(l.qty)} × {l.unit_price_snapshot.toFixed(2)} €
+                                    {toutEnvoye ? '  · envoyé' : ''}
+                                    {enAttente > 0 && l.sent_qty > 0 ? `  · ${fmt(l.sent_qty)} envoyé${l.sent_qty > 1 ? 's' : ''}` : ''}
+                                </Text>
                                 {l.options_snapshot.map((o) => (
                                     <Text key={o.option_id} style={styles.lineOpt}>+ {o.name}</Text>
                                 ))}
@@ -176,7 +199,16 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
                                     </View>
                                 )}
                             </View>
-                            <Text style={styles.lineTotal}>{l.line_total.toFixed(2)} €</Text>
+                            <View style={styles.lineDroite}>
+                                {enAttente !== 0 && (
+                                    <View style={[styles.delta, enAttente < 0 && styles.deltaAnnule]}>
+                                        <Text style={[styles.deltaTexte, enAttente < 0 && styles.deltaTexteAnnule]}>
+                                            {enAttente > 0 ? '+' : '−'}{fmt(Math.abs(enAttente))}
+                                        </Text>
+                                    </View>
+                                )}
+                                <Text style={styles.lineTotal}>{l.line_total.toFixed(2)} €</Text>
+                            </View>
                         </Pressable>
                     );
                 })}
@@ -308,7 +340,14 @@ const styles = StyleSheet.create({
     line: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing(3.5), gap: theme.spacing(3), borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' },
     lineSelected: { borderColor: theme.colors.primary, backgroundColor: theme.colors.surfaceAlt },
     accent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: 'transparent' },
-    accentOn: { backgroundColor: theme.colors.success },
+    // Vert : part en cuisine au prochain envoi. Rouge : à annuler.
+    accentAEnvoyer: { backgroundColor: theme.colors.success },
+    accentAAnnuler: { backgroundColor: theme.colors.danger },
+    lineDroite: { alignItems: 'flex-end', gap: theme.spacing(1.5) },
+    delta: { backgroundColor: theme.colors.success, borderRadius: theme.radius.pill, paddingHorizontal: theme.spacing(2), paddingVertical: 1, minWidth: 30, alignItems: 'center' },
+    deltaAnnule: { backgroundColor: theme.colors.danger },
+    deltaTexte: { color: '#04220F', fontSize: 12, fontWeight: '800', ...theme.font.chiffres },
+    deltaTexteAnnule: { color: '#fff' },
     lineName: { color: theme.colors.text, fontWeight: '700', fontSize: 15 },
     lineMeta: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
     lineOpt: { color: theme.colors.textFaint, fontSize: 12 },
