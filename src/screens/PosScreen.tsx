@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Search, Send, ShoppingCart, X } from 'lucide-react-native';
 import { Screen } from '../components/Screen';
@@ -12,17 +12,14 @@ import { useCart } from '../store/useCart';
 import { printKitchen } from '../services/printing';
 import type { Category, Product, SelectedOption } from '../types';
 import type { RootStackParamList } from '../navigation/types';
-
-// Dimensions calculées -> s'adapte à n'importe quel écran (iPhone / Samsung / iPad).
-const SCREEN_W = Dimensions.get('window').width;
-const IS_TABLET = SCREEN_W >= 700;
-const H_PAD = 12; // marge latérale des grilles
-const GAP = 10;
-const PROD_COLS = IS_TABLET ? 5 : 3;
-const PROD_SIZE = Math.floor((SCREEN_W - H_PAD * 2 - GAP * (PROD_COLS - 1)) / PROD_COLS);
+import { COLS_MAX, GAP, grille, H_CAT, H_PAD, H_SOUS, ONGLET_VISE, rangees as calculRangees, TUILE_VISEE } from '../utils/grille';
+import { isFirstSend, resolveCallNumber } from '../services/callNumber';
 
 /** Écran POS : catégories (imbriquées) + grille de produits + barre Order/Cart. */
 export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamList, 'Pos'>) {
+    const { width: largeurEcran } = useWindowDimensions();
+    const { cols: PROD_COLS, taille: PROD_SIZE } = useMemo(() => grille(largeurEcran), [largeurEcran]);
+
     const categories = useConfig((s) => s.categories);
     const allProducts = useConfig((s) => s.products);
     const showPrices = useConfig(showProductPrices);
@@ -115,9 +112,11 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
         const cart = useCart.getState();
         if (cart.pendingNew() === 0 && cart.pendingCancel() === 0) return;
         setSending(true);
+        const firstSend = isFirstSend(cart.order);
         const { newLines, cancelLines } = cart.sendToKitchen();
+        const callNumber = await resolveCallNumber(firstSend, newLines.length > 0);
         const current = useCart.getState().order;
-        if (current) await printKitchen(current, newLines, cancelLines).catch(() => {});
+        if (current) await printKitchen(current, newLines, cancelLines, callNumber).catch(() => {});
         setSending(false);
         haptique.reussite();
         const sent = newLines.reduce((s, l) => s + l.qty, 0);
@@ -140,47 +139,97 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
     const aEnvoyer = canOrder;
     const fmtQty = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(2));
 
-    // Rangée d'onglets (catégories ou sous-catégories) : slide horizontal, chaque
-    // bouton à la taille de son texte (jamais tronqué). Sélection = fond coloré.
-    const renderTabs = (items: Category[], activeId: number | null, onSelect: (id: number) => void, big: boolean) => (
-        <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={big ? styles.catScroll : styles.subScroll}
-            contentContainerStyle={styles.tabScrollContent}
-        >
-            {items.map((c) => {
-                const active = activeId === c.id;
-                return (
-                    <Pressable
-                        key={c.id}
-                        onPress={() => onSelect(c.id)}
-                        style={[
-                            big ? styles.cat : styles.subcat,
-                            // Le premier niveau se remplit de la couleur de la famille ;
-                            // le second reste sourd, pour qu'on sache à quel étage on est.
-                            /*
-                                La couleur de la famille en LISERÉ, pas en aplat.
-                                Un onglet rouge vif et un bleu vif étaient les seules
-                                taches saturées de l'application ; ils juraient avec
-                                la sobriété du reste et écrasaient la grille. Le
-                                liseré garde le repère, sans le crier.
-                            */
-                            big
-                                ? {
-                                    backgroundColor: active ? theme.colors.surfaceAlt : theme.colors.surface,
-                                    borderBottomWidth: 3,
-                                    borderBottomColor: active ? (c.color ?? theme.colors.primary) : 'transparent',
-                                }
-                                : { backgroundColor: active ? theme.colors.surfaceAlt : theme.colors.bg, borderColor: active ? theme.colors.borderStrong : theme.colors.border },
-                        ]}
-                    >
-                        <Text style={[big ? styles.catText : styles.subcatText, active ? styles.tabTextActive : styles.tabTextIdle]}>{c.name}</Text>
-                    </Pressable>
-                );
-            })}
-        </ScrollView>
-    );
+    /*
+     * Bandeau d'onglets en GRILLE.
+     *
+     * C'était un défilement horizontal d'une seule ligne : rien n'indiquait
+     * qu'il restait des catégories hors écran. Puis des boutons enroulés à la
+     * taille de leur texte, ce qui laissait un vide en fin de rangée et donnait
+     * des cibles inégales — la plus courte étant la plus dure à viser.
+     *
+     * Désormais toutes les cellules ont la MÊME largeur et remplissent la ligne,
+     * comme la grille produits juste en dessous. On défile verticalement au-delà
+     * de `rangees`, sans jamais empiéter sur les produits.
+     *
+     * Le `paddingTop` est porté par le conteneur EXTÉRIEUR : à l'intérieur du
+     * `maxHeight`, il rognait la rangée et coupait les boutons par le bas.
+     */
+    const renderTabs = (
+        items: Category[],
+        activeId: number | null,
+        onSelect: (id: number) => void,
+        big: boolean,
+        maxRangees: number,
+    ) => {
+        const hauteur = big ? H_CAT : H_SOUS;
+        // Peu d'onglets : ils se partagent la largeur au lieu de laisser un vide.
+        const { cols, taille } = grille(
+            largeurEcran,
+            big ? TUILE_VISEE : ONGLET_VISE,
+            1,
+            Math.max(1, Math.min(items.length, big ? 4 : COLS_MAX)),
+        );
+
+        /*
+         * Le bandeau ne réserve que les rangées qu'il utilise VRAIMENT.
+         *
+         * Un plafond fixe cachait la seconde rangée quand trois racines tenaient
+         * sur deux colonnes, et gaspillait de la hauteur quand elles tenaient sur
+         * une seule.
+         */
+        const rangees = calculRangees(items.length, cols, maxRangees);
+
+        return (
+            <View style={big ? styles.catBand : styles.subBand}>
+                <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    style={{ maxHeight: hauteur * rangees + GAP * (rangees - 1) }}
+                    contentContainerStyle={styles.tabWrap}
+                >
+                    {items.map((c) => {
+                        const active = activeId === c.id;
+                        return (
+                            <Pressable
+                                key={c.id}
+                                onPress={() => onSelect(c.id)}
+                                style={[
+                                    styles.tab,
+                                    { width: taille, height: hauteur },
+                                    /*
+                                        La couleur de la famille en LISERÉ, pas en aplat.
+                                        Un onglet rouge vif et un bleu vif étaient les seules
+                                        taches saturées de l'application ; ils juraient avec
+                                        la sobriété du reste et écrasaient la grille.
+                                    */
+                                    big
+                                        ? {
+                                            backgroundColor: active ? theme.colors.surfaceAlt : theme.colors.surface,
+                                            borderBottomWidth: 3,
+                                            borderBottomColor: active ? (c.color ?? theme.colors.primary) : 'transparent',
+                                        }
+                                        : {
+                                            backgroundColor: active ? theme.colors.surfaceAlt : theme.colors.bg,
+                                            borderWidth: 1,
+                                            borderColor: active ? theme.colors.borderStrong : theme.colors.border,
+                                        },
+                                ]}
+                            >
+                                {/* Deux lignes : « Sauce supplémentaire » ne tient pas sur
+                                    une cellule de 118 pt, et le tronquer le rendrait
+                                    indistinguable de « Sauce pour frite ». */}
+                                <Text
+                                    style={[big ? styles.catText : styles.subcatText, active ? styles.tabTextActive : styles.tabTextIdle]}
+                                    numberOfLines={2}
+                                >
+                                    {c.name}
+                                </Text>
+                            </Pressable>
+                        );
+                    })}
+                </ScrollView>
+            </View>
+        );
+    };
 
     return (
         <Screen style={{ padding: 0 }} edges={['bottom']}>
@@ -204,8 +253,19 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
                 </View>
             ) : (
                 <>
-                    {renderTabs(roots, rootId, selectRoot, true)}
-                    {children.length > 0 && renderTabs(children, childId, setChildId, false)}
+                    {/*
+                        Deux racines seulement — le cas de la friterie, Food et Drink —
+                        n'ont pas besoin de deux rangées : la place rendue va aux
+                        sous-catégories, qui sont nombreuses. La hauteur suit le
+                        contenu, pas la structure.
+                    */}
+                    {/*
+                        Les racines s'étalent sur deux rangées au plus. Ce qu'elles ne
+                        prennent pas revient aux sous-catégories, qui sont nombreuses
+                        chez un friterie — la place suit le contenu, pas la structure.
+                    */}
+                    {renderTabs(roots, rootId, selectRoot, true, 2)}
+                    {children.length > 0 && renderTabs(children, childId, setChildId, false, roots.length <= 3 ? 3 : 2)}
                 </>
             )}
 
@@ -221,6 +281,7 @@ export function PosScreen({ navigation }: NativeStackScreenProps<RootStackParamL
                 columnWrapperStyle={styles.gridRow}
                 data={shown}
                 keyExtractor={(p) => String(p.id)}
+                key={`grille-${PROD_COLS}`}
                 numColumns={PROD_COLS}
                 initialNumToRender={PROD_COLS * 4}
                 windowSize={5}
@@ -294,14 +355,18 @@ const styles = StyleSheet.create({
     searchBtn: { width: 40, height: 40, borderRadius: theme.radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceAlt },
     searchInput: { flex: 1, color: theme.colors.text, fontSize: 16, height: '100%' },
 
-    // Onglets (slide horizontal)
-    catScroll: { flexGrow: 0, paddingTop: theme.spacing(2.5) },
-    subScroll: { flexGrow: 0, paddingTop: theme.spacing(2) },
-    tabScrollContent: { gap: GAP, paddingHorizontal: H_PAD },
-    cat: { height: 52, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.spacing(6) },
-    subcat: { height: 44, borderRadius: theme.radius.sm, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.spacing(4.5), borderWidth: 1, borderColor: theme.colors.border },
-    catText: { ...theme.font.heading },
-    subcatText: { ...theme.font.label, fontSize: 14 },
+    // Onglets : grille à cellules égales.
+    // Le padding vit sur le conteneur EXTÉRIEUR — à l'intérieur du maxHeight il
+    // rognait la rangée et coupait les boutons par le bas.
+    catBand: { paddingTop: theme.spacing(2.5) },
+    subBand: { paddingTop: theme.spacing(2) },
+    // `flexWrap` : les onglets passent à la ligne au lieu de filer hors écran.
+    tabWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingHorizontal: H_PAD },
+    tab: { borderRadius: theme.radius.sm, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.spacing(1.5) },
+    // Centré et sur deux lignes : la cellule étant fixe, c'est le texte qui doit
+    // s'y plier, pas l'inverse.
+    catText: { ...theme.font.heading, fontSize: 15, textAlign: 'center' },
+    subcatText: { ...theme.font.label, fontSize: 13, textAlign: 'center', lineHeight: 15 },
     tabTextActive: { color: theme.colors.text },
     tabTextIdle: { color: theme.colors.textMuted },
 

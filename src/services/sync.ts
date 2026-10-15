@@ -73,7 +73,20 @@ async function pushBatch(batch: Order[]): Promise<{ accepted: number; networkDow
             const pushed = batch.find((o) => o.id === a.id) as any;
             // `rev` : compteur monotone. Si la commande a été rééditée pendant
             // l'envoi, elle reste à repousser au lieu d'être perdue.
-            await db.markOrderSynced(a.id, a.version, Number(pushed?.rev ?? 0));
+            const pushedRev = Number(pushed?.rev ?? 0);
+            await db.markOrderSynced(a.id, a.version, pushedRev);
+
+            /*
+             * On adopte la commande telle que le SERVEUR la détient, lignes des
+             * autres appareils comprises. Sans ça, celui qui pousse reste sur sa
+             * propre vue et peut présenter une addition incomplète.
+             */
+            if (a.order) {
+                const fusion = normalizeOrder(a.order);
+                if (await db.adoptMergedOrder(fusion, pushedRev) === 'applied') {
+                    useCart.getState().applyRemoteOrder(fusion);
+                }
+            }
         }
         return { accepted: accepted.length, networkDown: false };
     } catch (e: any) {
@@ -358,7 +371,14 @@ function normalizeOrder(o: any): Order {
         tax_total: Number(o.tax_total),
         total: Number(o.total),
         payments: Array.isArray(o.payments)
-            ? o.payments.map((p: any) => ({ method: p.method, amount: Number(p.amount) }))
+            ? o.payments.map((p: any) => ({
+                method: p.method,
+                amount: Number(p.amount),
+                // Sans ce report, l'appareil qui reçoit la commande en miroir
+                // perdrait l'encaisseur et le renverrait vide à la synchro
+                // suivante — le serveur écraserait alors une donnée juste.
+                user_id: p.user_id != null ? Number(p.user_id) : null,
+            }))
             : [],
         lines: Array.isArray(o.lines)
             ? o.lines.map((l: any, i: number) => ({
@@ -366,6 +386,7 @@ function normalizeOrder(o: any): Order {
                 // Repli sur le rang reçu : un serveur pas encore migré n'envoie
                 // pas encore ce champ.
                 position: Number(l.position ?? i + 1),
+                server_id: l.server_id != null ? Number(l.server_id) : null,
                 qty: Number(l.qty),
                 sent_qty: Number(l.sent_qty ?? 0),
                 unit_price_snapshot: Number(l.unit_price_snapshot),

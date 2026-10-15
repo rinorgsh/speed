@@ -14,9 +14,11 @@ import { useAuth } from '../store/useAuth';
 import * as db from '../db/database';
 import { printCustomerReceipt, printKitchen } from '../services/printing';
 import { flushOutbox } from '../services/sync';
+import { isFirstSend, resolveCallNumber } from '../services/callNumber';
 import type { Category, Product, SelectedOption, ServiceType } from '../types';
 import type { RootStackParamList } from '../navigation/types';
 import { useT } from '../i18n';
+import { COLS_MAX, GAP, grille, H_CAT, H_SOUS, ONGLET_VISE, rangees as calculRangees, TUILE_VISEE } from '../utils/grille';
 
 type Mode = 'qty' | 'price';
 
@@ -118,12 +120,19 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
     const selected = lines.find((l) => l.id === selectedId) ?? null;
     const total = order?.total ?? 0;
 
-    // --- Grille : dimensions responsive (panneau ticket = largeur fixe à droite) ---
+    /*
+     * Grille : le panneau ticket occupe une largeur fixe à droite, le reste
+     * revient aux produits.
+     *
+     * Le calcul est celui de `utils/grille`, PARTAGÉ avec l'écran téléphone.
+     * Cet écran avait le sien — un plafond de 160 pt par case et cinq colonnes
+     * au maximum — et une tablette de 880 pt se retrouvait avec 3 colonnes de
+     * 165 pt là où le téléphone en affichait 3 de 115. Corriger un écran
+     * laissait l'autre en arrière ; c'est exactement ce qui vient d'arriver.
+     */
     const TICKET_W = width >= 1100 ? 400 : 340;
-    const GAP = 10;
     const gridW = width - TICKET_W - 24;
-    const cols = Math.max(2, Math.min(5, Math.floor(gridW / 160)));
-    const cell = Math.floor((gridW - GAP * (cols - 1)) / cols);
+    const { cols, taille: cell } = grille(gridW, TUILE_VISEE, 2, COLS_MAX);
 
     // --- Actions ---
     function startCounter(st: ServiceType) {
@@ -202,9 +211,11 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
         if (!cart.order || processing || !toSend) return;
         setProcessing(true);
         try {
+            const firstSend = isFirstSend(cart.order);
             const batch = cart.sendToKitchen();
+            const callNumber = await resolveCallNumber(firstSend, batch.newLines.length > 0);
             const afterSend = useCart.getState().order;
-            if (afterSend) await printKitchen(afterSend, batch.newLines, batch.cancelLines).catch(() => {});
+            if (afterSend) await printKitchen(afterSend, batch.newLines, batch.cancelLines, callNumber).catch(() => {});
             await flushOutbox();
             setFlash(t('Envoyé en cuisine'));
             setTimeout(() => setFlash(null), 1800);
@@ -221,9 +232,11 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
         setProcessing(true);
         try {
             // 1) Envoi en préparation (cuisine/bar selon la catégorie -> imprimante).
+            const firstSend = isFirstSend(cart.order);
             const batch = cart.sendToKitchen();
+            const callNumber = await resolveCallNumber(firstSend, batch.newLines.length > 0);
             const afterSend = useCart.getState().order;
-            if (afterSend) await printKitchen(afterSend, batch.newLines, batch.cancelLines).catch(() => {});
+            if (afterSend) await printKitchen(afterSend, batch.newLines, batch.cancelLines, callNumber).catch(() => {});
 
             // 2) Paiement du montant total (cash arrondi 5 cts belge).
             const rem = cart.remaining();
@@ -262,27 +275,62 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
         [{ k: '+/-' }, { k: '0' }, { k: '.' }, { k: 'sp', spacer: true }],
     ];
 
-    const renderTabs = (items: Category[], activeId: number | null, onSelect: (id: number) => void) => (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.tabsContent}>
-            {items.map((c) => {
-                const active = activeId === c.id;
-                return (
-                    <Pressable key={c.id} onPress={() => onSelect(c.id)} style={[
-                        styles.tab,
-                        // Liseré et non aplat : même parti que sur le téléphone.
-                        active && {
-                            backgroundColor: theme.colors.surfaceAlt,
-                            borderColor: theme.colors.borderStrong,
-                            borderBottomWidth: 3,
-                            borderBottomColor: c.color ?? theme.colors.primary,
-                        },
-                    ]}>
-                        <Text style={[styles.tabText, active && styles.tabTextActive]}>{c.name}</Text>
-                    </Pressable>
-                );
-            })}
-        </ScrollView>
-    );
+    /*
+     * Onglets en GRILLE, comme sur le téléphone.
+     *
+     * C'était un défilement horizontal : rien n'indiquait qu'il restait des
+     * catégories hors écran, et les boutons, taillés sur leur texte, laissaient
+     * un vide en fin de rangée avec des cibles de tailles inégales — la plus
+     * courte étant la plus dure à viser.
+     */
+    const renderTabs = (
+        items: Category[],
+        activeId: number | null,
+        onSelect: (id: number) => void,
+        big: boolean,
+        maxRangees: number,
+    ) => {
+        const hauteur = big ? H_CAT : H_SOUS;
+        // Peu d'onglets : ils se partagent la largeur au lieu de laisser un vide.
+        const { cols: nb, taille } = grille(
+            gridW,
+            big ? TUILE_VISEE : ONGLET_VISE,
+            1,
+            Math.max(1, Math.min(items.length, big ? 4 : COLS_MAX)),
+        );
+        const lignes = calculRangees(items.length, nb, maxRangees);
+
+        return (
+            <ScrollView
+                showsVerticalScrollIndicator={false}
+                style={{ flexGrow: 0, maxHeight: hauteur * lignes + GAP * (lignes - 1) }}
+                contentContainerStyle={styles.tabsContent}
+            >
+                {items.map((c) => {
+                    const active = activeId === c.id;
+                    return (
+                        <Pressable key={c.id} onPress={() => onSelect(c.id)} style={[
+                            styles.tab,
+                            { width: taille, height: hauteur },
+                            // Liseré et non aplat : même parti que sur le téléphone.
+                            active && {
+                                backgroundColor: theme.colors.surfaceAlt,
+                                borderColor: theme.colors.borderStrong,
+                                borderBottomWidth: 3,
+                                borderBottomColor: c.color ?? theme.colors.primary,
+                            },
+                        ]}>
+                            {/* Deux lignes : la cellule étant fixe, c'est le texte qui
+                                s'y plie — « Sauce supplémentaire » ne tient pas sinon. */}
+                            <Text style={[styles.tabText, active && styles.tabTextActive]} numberOfLines={2}>
+                                {c.name}
+                            </Text>
+                        </Pressable>
+                    );
+                })}
+            </ScrollView>
+        );
+    };
 
     return (
         // Cet écran n'a pas d'en-tête de navigation : il doit gérer LUI-MÊME
@@ -334,8 +382,8 @@ export function ComptoirScreen({ navigation, route }: NativeStackScreenProps<Roo
                         </View>
                     ) : (
                         <>
-                            {renderTabs(roots, rootId, selectRoot)}
-                            {children.length > 0 && renderTabs(children, childId, setChildId)}
+                            {renderTabs(roots, rootId, selectRoot, true, 2)}
+                            {children.length > 0 && renderTabs(children, childId, setChildId, false, roots.length <= 3 ? 3 : 2)}
                         </>
                     )}
 
@@ -546,9 +594,10 @@ const styles = StyleSheet.create({
     searchRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2), backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.md, paddingHorizontal: theme.spacing(3), height: 46, marginTop: theme.spacing(1) },
     searchInput: { flex: 1, color: theme.colors.text, fontSize: 15, height: '100%' },
 
-    tabsContent: { gap: 8, paddingVertical: theme.spacing(1.5) },
-    tab: { height: 48, paddingHorizontal: theme.spacing(4), borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
-    tabText: { ...theme.font.label, color: theme.colors.textMuted, fontSize: 15, fontWeight: '700' },
+    // `flexWrap` : les onglets passent à la ligne au lieu de filer hors écran.
+    tabsContent: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingVertical: theme.spacing(1.5) },
+    tab: { paddingHorizontal: theme.spacing(1.5), borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
+    tabText: { ...theme.font.label, color: theme.colors.textMuted, fontSize: 13, lineHeight: 15, fontWeight: '700', textAlign: 'center' },
     tabTextActive: { color: theme.colors.text, fontWeight: '800' },
 
     grid: { flexDirection: 'row', flexWrap: 'wrap', paddingBottom: theme.spacing(3) },

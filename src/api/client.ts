@@ -85,9 +85,20 @@ export async function closeSession(sessionId: number, closingCash: number, close
 }
 
 /** Pousse l'outbox ; renvoie les {id, version} acceptés (version serveur à adopter). */
-export async function pushOrders(orders: Order[]): Promise<{ accepted: { id: string; version: number }[] }> {
+export async function pushOrders(
+    orders: Order[],
+): Promise<{ accepted: { id: string; version: number; order?: Order }[] }> {
     const res = await api.post('/sync/orders', { orders });
     return res.data;
+}
+
+/**
+ * Nouveau numéro d'appel client (compteur du jour du serveur). Délai court :
+ * l'impression attend ce numéro, elle ne doit jamais rester bloquée.
+ */
+export async function requestCallNumber(profileId: number | null, timeoutMs: number): Promise<number> {
+    const res = await api.post<{ number: number }>('/call-number', { profile_id: profileId }, { timeout: timeoutMs });
+    return Number(res.data.number);
 }
 
 /** État partagé : commandes ouvertes/envoyées côté serveur (miroir), scopées profil. */

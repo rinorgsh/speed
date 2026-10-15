@@ -161,12 +161,29 @@ export interface OptionItem {
     option_group_id: number;
     name: string;
     price_delta: number;
+    /**
+     * L'option arrive cochée ; le serveur la DÉCOCHE si le client n'en veut pas.
+     * Pour les garnitures qui accompagnent le plat d'office.
+     *
+     * Facultatif : un serveur plus ancien que cette fonctionnalité ne renvoie pas
+     * le champ, et l'absence doit se lire comme « non cochée ».
+     */
+    default_selected?: boolean;
     sort_order: number;
 }
 
 export interface OptionGroup {
     id: number;
     name: string;
+    /**
+     * Nombre d'options réellement FACTURÉES dans ce groupe.
+     *
+     * À 1 sur un groupe qui en autorise 2 : le client prend deux sauces, une
+     * seule est comptée. C'est la « sauce mixte » de la friterie.
+     *
+     * Null ou absent — le défaut — facture tout, comportement d'origine.
+     */
+    paid_max?: number | null;
     min_select: number;
     max_select: number;
     required: boolean;
@@ -222,6 +239,16 @@ export interface SelectedOption {
     name: string;
     price_delta: number;
     /**
+     * L'option accompagnait le plat d'office et le client l'a REFUSÉE.
+     *
+     * Figé sur la ligne comme le reste du snapshot, plutôt que recalculé à
+     * l'impression en comparant au groupe : un groupe modifié dans l'admin
+     * réécrirait sinon un ticket déjà parti en cuisine.
+     *
+     * Toujours à supplément nul — un retrait ne se facture pas.
+     */
+    excluded?: boolean;
+    /**
      * Nom du groupe au moment du choix (« Sauce »), figé sur la ligne comme le
      * reste du snapshot : renommer le groupe dans l'admin ne doit pas réécrire
      * un ticket déjà imprimé. Absent des lignes créées avant cette version.
@@ -233,6 +260,17 @@ export interface SelectedOption {
 export interface OrderLine {
     id: string;
     order_id: string;
+    /**
+     * Qui a SAISI cette ligne — pas forcément celui qui a ouvert la table.
+     *
+     * Une table servie à plusieurs créditait auparavant le seul serveur de la
+     * commande. Chaque ligne porte désormais son auteur, et c'est lui qui est
+     * compté dans le rapport de caisse.
+     *
+     * Facultatif : les lignes créées avant 09/2026 n'en ont pas, le serveur
+     * retombe alors sur celui de la commande.
+     */
+    server_id?: number | null;
     /**
      * Rang de la ligne dans le ticket. Indispensable : l'identifiant est un
      * UUID, donc sans position le serveur renverrait les lignes dans un ordre
@@ -282,7 +320,9 @@ export interface Order {
     discount_reason?: string | null;
     discount_by?: number | null;
     lines: OrderLine[];
-    payments: { method: PaymentMethod; amount: number }[];
+    // `user_id` : qui a encaissé. Distinct du serveur qui a vendu — c'est ce qui
+    // permet de rapprocher le tiroir-caisse sans fausser les ventes en salle.
+    payments: { method: PaymentMethod; amount: number; user_id?: number | null }[];
     /** Fusion : commande dans laquelle celle-ci a été absorbée (traçabilité). */
     merged_into?: string | null;
 }

@@ -12,6 +12,7 @@ import { useCart } from '../store/useCart';
 import { useT } from '../i18n';
 import { printKitchen } from '../services/printing';
 import { flushOutbox } from '../services/sync';
+import { isFirstSend, resolveCallNumber } from '../services/callNumber';
 import type { ServiceType } from '../types';
 import type { RootStackParamList } from '../navigation/types';
 
@@ -112,10 +113,12 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
 
     const send = async () => {
         setSending(true);
+        const firstSend = isFirstSend(useCart.getState().order);
         const { newLines, cancelLines } = useCart.getState().sendToKitchen();
         await flushOutbox(); // envoi autoritaire : le serveur est à jour avant tout
+        const callNumber = await resolveCallNumber(firstSend, newLines.length > 0);
         const cur = useCart.getState().order;
-        const ok = cur ? await printKitchen(cur, newLines, cancelLines) : true;
+        const ok = cur ? await printKitchen(cur, newLines, cancelLines, callNumber) : true;
         setSending(false);
         const s = newLines.reduce((a, l) => a + l.qty, 0);
         const c = cancelLines.reduce((a, l) => a + l.qty, 0);
@@ -128,7 +131,7 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
                 {
                     text: 'Réimprimer',
                     onPress: async () => {
-                        const r = cur ? await printKitchen(cur, newLines, cancelLines) : true;
+                        const r = cur ? await printKitchen(cur, newLines, cancelLines, callNumber) : true;
                         if (!r) Alert.alert('Toujours injoignable', "Vérifiez l'imprimante (allumée, réseau, câble).");
                     },
                 },
@@ -202,7 +205,9 @@ export function CartScreen({ navigation }: NativeStackScreenProps<RootStackParam
                                     {enAttente > 0 && l.sent_qty > 0 ? `  · ${fmt(l.sent_qty)} envoyé${l.sent_qty > 1 ? 's' : ''}` : ''}
                                 </Text>
                                 {l.options_snapshot.map((o) => (
-                                    <Text key={o.option_id} style={styles.lineOpt}>+ {o.name}</Text>
+                                    <Text key={`${o.option_id}-${o.excluded ? 'x' : 'o'}`} style={[styles.lineOpt, o.excluded && styles.lineOptRetire]}>
+                                        {o.excluded ? `sans ${o.name.toLowerCase()}` : `+ ${o.name}`}
+                                    </Text>
                                 ))}
                                 {/* Note : sous le produit, comme sur le ticket. */}
                                 {!!l.note && (
@@ -372,6 +377,9 @@ const styles = StyleSheet.create({
     lineName: { color: theme.colors.text, fontWeight: '700', fontSize: 15 },
     lineMeta: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
     lineOpt: { color: theme.colors.textFaint, fontSize: 12 },
+    // Un retrait est une consigne, pas un détail : il doit ressortir de la liste
+    // des suppléments, sinon « sans oignon » se lit comme « avec oignon ».
+    lineOptRetire: { color: theme.colors.warning, fontWeight: '700' },
     noteRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(1.5), marginTop: 3 },
     lineNote: { color: theme.colors.warning, fontSize: 12, fontStyle: 'italic', flex: 1 },
     lineTotal: { color: theme.colors.text, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] },

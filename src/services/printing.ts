@@ -1,6 +1,7 @@
 import { useConfig } from '../store/useConfig';
 import * as db from '../db/database';
 import {
+    buildCallNumberTicket,
     buildKitchenTicket,
     buildBill,
     buildReceipt,
@@ -46,13 +47,19 @@ async function orderMeta(order: Order): Promise<{ tableLabel: string | null; roo
  * imprimante). Renvoie true si TOUT est imprimé (aucune imprimante injoignable,
  * aucune ligne sans imprimante de routage).
  */
-export async function printKitchenTickets(order: Order, lines: OrderLine[], isCancellation = false): Promise<boolean> {
+export async function printKitchenTickets(
+    order: Order,
+    lines: OrderLine[],
+    isCancellation = false,
+    callNumber: string | null = null,
+): Promise<boolean> {
     if (!lines.length) return true;
     const { products, categories, printers, prepStations, fallbackOrderPrinter } = useConfig.getState();
     const groups = groupLinesByStation(lines, products, categories, prepStations, printers, fallbackOrderPrinter());
     const meta = await orderMeta(order);
 
     let ok = groups.length > 0; // des lignes sans destination = échec
+    let callTicketPrinted = false;
     for (const g of groups) {
         const station = g.station;
         const showsOnScreen = station ? station.mode === 'screen' || station.mode === 'both' : false;
@@ -60,8 +67,33 @@ export async function printKitchenTickets(order: Order, lines: OrderLine[], isCa
 
         if (printsPaper) {
             if (!g.printer) { ok = false; continue; }
-            const data = buildKitchenTicket(order, g.lines, meta, isCancellation);
+
+            /*
+             * Le serveur affiché est celui du LOT, pas celui de la table.
+             * Une table ouverte par Loti où Lido ajoute deux bières doit sortir
+             * au nom de Lido — c'est lui qui rapportera les bières.
+             */
+            const { users: tous } = useConfig.getState();
+            const nom = (id: number | null | undefined) => tous.find((u) => u.id === id)?.name ?? null;
+            const auteurs = new Set(g.lines.map((l) => l.server_id ?? order.server_id));
+            const metaLot = auteurs.size === 1
+                ? { ...meta, serverName: nom([...auteurs][0]) ?? meta.serverName }
+                : meta;
+
+            const data = buildKitchenTicket(
+                order, g.lines, metaLot, isCancellation,
+                auteurs.size > 1 ? (l) => nom(l.server_id ?? order.server_id) : undefined,
+                callNumber,
+            );
             if (!(await enqueuePrint(g.printer, data, ticketLabel(order, meta, isCancellation)))) ok = false;
+
+            // Numéro d'appel : le ticket client sort juste après le ticket de
+            // commande, sur la MÊME imprimante, une seule fois par envoi.
+            if (callNumber && !callTicketPrinted) {
+                callTicketPrinted = true;
+                const ticket = buildCallNumberTicket(callNumber, useConfig.getState().settings);
+                if (!(await enqueuePrint(g.printer, ticket, `Numéro client ${callNumber}`))) ok = false;
+            }
         }
 
         // Poste à l'écran : l'envoi est porté par la synchro. On arme le repli
@@ -84,8 +116,13 @@ export async function printKitchenTickets(order: Order, lines: OrderLine[], isCa
 }
 
 /** Envoie en cuisine : ticket de préparation (nouveautés) + ticket d'annulation. */
-export async function printKitchen(order: Order, newLines: OrderLine[], cancelLines: OrderLine[]): Promise<boolean> {
-    const a = await printKitchenTickets(order, newLines, false);
+export async function printKitchen(
+    order: Order,
+    newLines: OrderLine[],
+    cancelLines: OrderLine[],
+    callNumber: string | null = null,
+): Promise<boolean> {
+    const a = await printKitchenTickets(order, newLines, false, callNumber);
     const b = await printKitchenTickets(order, cancelLines, true);
     return a && b;
 }

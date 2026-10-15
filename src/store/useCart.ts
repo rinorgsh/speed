@@ -156,10 +156,24 @@ export const useCart = create<CartState>((set, get) => ({
         const rate = taxRateFor(product, order.service_type, taxes);
         const delta = optionsDelta(options);
 
-        // Sans options ni note : on incrémente la ligne existante du produit (même
-        // déjà envoyée -> les nouvelles unités seront à préparer).
+        // Chaque appareil est celui d'un serveur : l'utilisateur connecté EST
+        // l'auteur de la ligne. C'est ce qui remplace l'attribution par table,
+        // qui créditait celui qui l'avait ouverte de tout ce que les autres y
+        // ajoutaient.
+        const serverId = useAuth.getState().server?.id ?? order.server_id;
+
+        /*
+         * Sans options ni note : on incrémente la ligne existante du produit
+         * (même déjà envoyée -> les nouvelles unités seront à préparer).
+         *
+         * MAIS seulement si c'est LE MÊME SERVEUR. Sans cette condition, le
+         * fanta de Lido fusionnerait avec les deux de Loti et l'attribution
+         * serait perdue à l'instant même où on la pose.
+         */
         const existing = options.length === 0 && !note
-            ? order.lines.find((l) => l.product_id === product.id && !l.voided && l.options_snapshot.length === 0 && !l.note)
+            ? order.lines.find((l) => l.product_id === product.id && !l.voided
+                && l.options_snapshot.length === 0 && !l.note
+                && (l.server_id ?? order.server_id) === serverId)
             : undefined;
 
         let lines: OrderLine[];
@@ -175,6 +189,7 @@ export const useCart = create<CartState>((set, get) => ({
                 // Toujours en fin de ticket. Le rang est porté explicitement :
                 // l'identifiant étant un UUID, aucun tri implicite ne tient.
                 position: order.lines.reduce((max, l) => Math.max(max, l.position ?? 0), 0) + 1,
+                server_id: serverId,
                 product_id: product.id,
                 name_snapshot: product.name,
                 qty,
@@ -308,7 +323,10 @@ export const useCart = create<CartState>((set, get) => ({
     addPayment: (method, amount) => {
         const order = get().order;
         if (!order) return;
-        commit(set, { ...order, payments: [...order.payments, { method, amount }] });
+        // Qui prend l'argent : lu au moment de l'encaissement, pas à l'ouverture
+        // de la table. Une table servie par Loti peut être encaissée par Lido.
+        const userId = useAuth.getState().server?.id ?? order.server_id;
+        commit(set, { ...order, payments: [...order.payments, { method, amount, user_id: userId }] });
     },
 
     removePayment: (index) => {

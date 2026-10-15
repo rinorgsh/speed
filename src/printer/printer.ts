@@ -237,9 +237,21 @@ function optionLines(options: SelectedOption[], withPrice: boolean): string[] {
     const grouped = new Map<string, string[]>();
 
     for (const opt of options) {
-        const label = withPrice && opt.price_delta ? `${opt.name} (${euro(opt.price_delta)})` : opt.name;
+        /*
+         * Un RETRAIT : l'option venait d'office et le client l'a refusée.
+         *
+         * On l'écrit « sans oignon », et on n'imprime PAS ce qui a été gardé —
+         * répéter la garniture standard sur chaque burger noierait justement le
+         * seul mot qui change le travail en cuisine.
+         */
+        const label = opt.excluded
+            ? `sans ${opt.name.toLowerCase()}`
+            : withPrice && opt.price_delta
+                ? `${opt.name} (${euro(opt.price_delta)})`
+                : opt.name;
+
         if (!opt.group) {
-            rendered.push(`   + ${label}`);
+            rendered.push(`   ${opt.excluded ? '' : '+ '}${label}`);
             continue;
         }
         grouped.set(opt.group, [...(grouped.get(opt.group) ?? []), label]);
@@ -294,8 +306,22 @@ export function buildKitchenTicket(
     lines: OrderLine[],
     meta: { tableLabel: string | null; roomName: string | null; serverName: string },
     isCancellation = false,
+    /*
+     * Nom à afficher SOUS chaque article, quand le lot vient de plusieurs
+     * serveurs. Renvoie null quand un seul a envoyé : l'en-tête suffit alors, et
+     * répéter le même nom sous chaque ligne noierait les consignes de
+     * préparation, qui sont ce que la cuisine doit lire.
+     */
+    serverOf?: (line: OrderLine) => string | null,
+    /** Numéro d'appel client (réglage activé) : imprimé en très gros, en tête. */
+    callNumber: string | null = null,
 ): Buffer {
     const b = new EscPosBuilder().init();
+
+    if (callNumber && !isCancellation) {
+        b.align('center').bold(true).size(4, 4).line(`N° ${callNumber}`);
+        b.size(1, 1).bold(false).feed();
+    }
 
     if (isCancellation) {
         b.align('center').bold(true).size(2, 2).line('*** ANNULATION ***');
@@ -351,11 +377,32 @@ export function buildKitchenTicket(
         for (const ligne of optionLines(l.options_snapshot, false)) b.line(ligne);
         if (l.note) b.line(`   ** ${l.note}`);
 
+        // Table servie à plusieurs : on dit qui a pris CET article, c'est lui
+        // qu'on appelle si la préparation pose question.
+        const parQui = serverOf?.(l);
+        if (parQui) b.size(1, 1).line(`   par ${parQui}`).size(1, 2);
+
         b.size(1, 1).bold(false);
         b.feed();
     }
 
     b.rule().align('center').line(timeStamp());
+    b.cut();
+    return b.build();
+}
+
+/**
+ * Ticket client du numéro d'appel : rien d'autre que le numéro, lisible de
+ * loin. Le client le garde jusqu'à ce qu'on appelle « Numéro 42 ! ».
+ */
+export function buildCallNumberTicket(callNumber: string, settings: Record<string, string | null>): Buffer {
+    const b = new EscPosBuilder().init().align('center');
+    if (settings.restaurant_name) b.bold(true).line(settings.restaurant_name).bold(false);
+    b.feed();
+    b.size(1, 1).line('Votre numéro');
+    b.bold(true).size(6, 6).line(callNumber);
+    b.size(1, 1).bold(false).feed();
+    b.line(timeStamp());
     b.cut();
     return b.build();
 }

@@ -72,7 +72,7 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
       price_includes_tax INTEGER, color TEXT, available INTEGER, is_open_price INTEGER, sort_order INTEGER,
       image_url TEXT, option_group_ids TEXT
     );
-    CREATE TABLE IF NOT EXISTS option_groups (id INTEGER PRIMARY KEY, name TEXT, min_select INTEGER, max_select INTEGER, required INTEGER, options TEXT);
+    CREATE TABLE IF NOT EXISTS option_groups (id INTEGER PRIMARY KEY, name TEXT, min_select INTEGER, max_select INTEGER, paid_max INTEGER, required INTEGER, options TEXT);
     CREATE TABLE IF NOT EXISTS pos_session (id INTEGER PRIMARY KEY, status TEXT, opened_by INTEGER, opened_at TEXT, opening_cash REAL, closed_by INTEGER, closed_at TEXT, closing_cash REAL);
     CREATE TABLE IF NOT EXISTS orders (
       id TEXT PRIMARY KEY, profile_id INTEGER, ticket_number INTEGER, version INTEGER DEFAULT 0, session_id INTEGER, room_id INTEGER, table_id INTEGER, server_id INTEGER,
@@ -84,7 +84,7 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
       id TEXT PRIMARY KEY, order_id TEXT, position INTEGER DEFAULT 0, product_id INTEGER, name_snapshot TEXT, qty REAL,
       unit_price_snapshot REAL, tax_rate_snapshot REAL, price_includes_tax_snapshot INTEGER,
       options_snapshot TEXT, note TEXT, line_total REAL, sent_at TEXT, sent_qty REAL DEFAULT 0,
-      voided INTEGER DEFAULT 0, void_reason TEXT, voided_by INTEGER
+      voided INTEGER DEFAULT 0, void_reason TEXT, voided_by INTEGER, server_id INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_order_lines_order ON order_lines(order_id);
     CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
@@ -141,6 +141,11 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
         'ALTER TABLE categories ADD COLUMN station_id INTEGER',
         // Rang de la ligne au ticket : sans lui, l'ordre suivrait l'UUID.
         'ALTER TABLE order_lines ADD COLUMN position INTEGER DEFAULT 0',
+        // Qui a saisi la ligne : l'attribution par table créditait celui qui
+        // l'avait ouverte de tout ce que les autres y ajoutaient.
+        'ALTER TABLE order_lines ADD COLUMN server_id INTEGER',
+        // Nombre d'options facturées : la sauce mixte n'en compte qu'une.
+        'ALTER TABLE option_groups ADD COLUMN paid_max INTEGER',
         /*
          * Compteur de révision LOCAL, incrémenté à chaque écriture.
          *
@@ -254,8 +259,8 @@ export async function importBootstrap(payload: BootstrapPayload): Promise<void> 
                 p.sort_order, p.image_url, JSON.stringify(p.option_group_ids ?? []));
         }
         for (const g of payload.option_groups) {
-            await txn.runAsync('INSERT INTO option_groups (id, name, min_select, max_select, required, options) VALUES (?,?,?,?,?,?)',
-                g.id, g.name, g.min_select, g.max_select, g.required ? 1 : 0, JSON.stringify(g.options ?? []));
+            await txn.runAsync('INSERT INTO option_groups (id, name, min_select, max_select, paid_max, required, options) VALUES (?,?,?,?,?,?,?)',
+                g.id, g.name, g.min_select, g.max_select, g.paid_max ?? null, g.required ? 1 : 0, JSON.stringify(g.options ?? []));
         }
         if (payload.session) {
             const s = payload.session;
@@ -349,7 +354,14 @@ export async function getProducts(): Promise<Product[]> {
 
 export async function getOptionGroups(): Promise<OptionGroup[]> {
     const rows = await getDb().getAllAsync<any>('SELECT * FROM option_groups');
-    return rows.map((r) => ({ ...r, required: !!r.required, options: JSON.parse(r.options || '[]') }));
+    return rows.map((r) => ({
+        ...r,
+        required: !!r.required,
+        // SQLite rend null tel quel : on garde la distinction « aucun quota »
+        // (tout est facturé) et « quota à 0 » (tout est offert).
+        paid_max: r.paid_max != null ? Number(r.paid_max) : null,
+        options: JSON.parse(r.options || '[]'),
+    }));
 }
 
 export async function getCurrentSession(): Promise<PosSession | null> {
@@ -448,11 +460,11 @@ export async function saveOrder(order: Order, synced = false): Promise<void> {
         for (const [i, l] of order.lines.entries()) {
             await txn.runAsync(
                 `INSERT INTO order_lines
-         (id, order_id, position, product_id, name_snapshot, qty, unit_price_snapshot, tax_rate_snapshot, price_includes_tax_snapshot, options_snapshot, note, line_total, sent_at, sent_qty, voided, void_reason, voided_by)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         (id, order_id, position, server_id, product_id, name_snapshot, qty, unit_price_snapshot, tax_rate_snapshot, price_includes_tax_snapshot, options_snapshot, note, line_total, sent_at, sent_qty, voided, void_reason, voided_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                 // Repli sur le rang du tableau : une ligne créée avant cette
                 // version n'a pas encore de position.
-                l.id, l.order_id, l.position ?? i + 1, l.product_id, l.name_snapshot, l.qty, l.unit_price_snapshot,
+                l.id, l.order_id, l.position ?? i + 1, l.server_id ?? null, l.product_id, l.name_snapshot, l.qty, l.unit_price_snapshot,
                 l.tax_rate_snapshot, l.price_includes_tax_snapshot ? 1 : 0, JSON.stringify(l.options_snapshot ?? []),
                 l.note, l.line_total, l.sent_at, l.sent_qty ?? 0, l.voided ? 1 : 0, l.void_reason, l.voided_by,
             );
@@ -673,6 +685,29 @@ export async function isOrderDirty(id: string): Promise<boolean> {
  * une commande ayant des éditions locales en attente (synced=0) : le prochain push
  * fera foi. Sinon on l'écrit comme synchronisée (synced=1).
  */
+/**
+ * Adopte la commande FUSIONNÉE que le serveur vient de renvoyer en réponse à
+ * notre propre poussée.
+ *
+ * C'est ce qui manquait. L'appareil poussait son jeu de lignes, le serveur le
+ * fusionnait avec celles des autres, et l'appareil n'adoptait que le numéro de
+ * version. Sa version devenant égale à celle du serveur, tous les miroirs
+ * suivants étaient rejetés comme périmés : il ne voyait JAMAIS les lignes de ses
+ * collègues. Une table éditée à deux pouvait être encaissée sur une addition
+ * incomplète.
+ *
+ * `pushedRev` protège l'édition en cours : si le serveur a saisi un article
+ * pendant l'aller-retour, le compteur local a avancé et on ne touche à rien. La
+ * fusion reviendra au prochain échange, qui est de quelques secondes.
+ */
+export async function adoptMergedOrder(order: Order, pushedRev: number): Promise<'applied' | 'skipped'> {
+    const local = await getDb().getFirstAsync<{ rev: number }>('SELECT rev FROM orders WHERE id = ?', order.id);
+    if (local && Number(local.rev ?? 0) !== pushedRev) return 'skipped';
+
+    await saveOrder(order, true);
+    return 'applied';
+}
+
 export async function saveRemoteOrder(order: Order): Promise<'applied' | 'skipped'> {
     const local = await getDb().getFirstAsync<{ synced: number; version: number }>(
         'SELECT synced, version FROM orders WHERE id = ?', order.id,

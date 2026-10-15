@@ -1,4 +1,5 @@
 import * as db from '../db/database';
+import { useAuth } from '../store/useAuth';
 import { computeOrderTotals, lineTotal, optionsDelta } from '../utils/pricing';
 import { uuidv4 } from '../utils/uuid';
 import { flushOutbox } from './sync';
@@ -59,7 +60,9 @@ export function buildSubticket(parent: Order, assignments: SplitAssignment[], me
         opened_at: now,
         paid_at: now,
         lines,
-        payments: [{ method, amount: totals.total }],
+        // Qui encaisse ce sous-ticket : lu maintenant, pas à l'ouverture de la
+        // table. Les lignes, elles, gardent le serveur qui les a saisies.
+        payments: [{ method, amount: totals.total, user_id: useAuth.getState().server?.id ?? parent.server_id }],
     };
 }
 

@@ -49,6 +49,9 @@ interface ConfigState {
  */
 export const showProductPrices = (s: ConfigState) => s.settings.show_product_prices !== '0';
 
+/** Numéro d'appel client : désactivé tant qu'il n'a pas été explicitement activé. */
+export const callNumberEnabled = (s: ConfigState) => s.settings.call_number_enabled === '1';
+
 /** Promesse de synchro en cours (garde single-flight, cf. syncFromServer). */
 let inFlightSync: Promise<boolean> | null = null;
 
