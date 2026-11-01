@@ -4,6 +4,7 @@ import type {
     Category,
     OptionGroup,
     Order,
+    OrderEvent,
     OrderLine,
     PosSession,
     PrepStation,
@@ -105,6 +106,15 @@ async function migrate(d: SQLite.SQLiteDatabase): Promise<void> {
       last_error TEXT, created_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_print_jobs_status ON print_jobs(status);
+    /*
+     * Journal des gestes de caisse (cf. services/journal.ts), avec sa propre
+     * file d'envoi. synced : 0 = à envoyer, 1 = reçu par le serveur,
+     * 2 = refusé définitivement (gardé pour diagnostic, plus renvoyé).
+     */
+    CREATE TABLE IF NOT EXISTS order_events (
+      id TEXT PRIMARY KEY, order_id TEXT, payload TEXT, synced INTEGER DEFAULT 0, created_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_events_synced ON order_events(synced);
   `);
     // Colonnes ajoutées après coup : ignore l'erreur si elles existent déjà.
     await d.execAsync('ALTER TABLE order_lines ADD COLUMN sent_qty REAL DEFAULT 0').catch(() => {});
@@ -792,6 +802,47 @@ export async function getQuarantinedOrders(): Promise<{ id: string; ticket_numbe
 /** Relance manuelle : on lève la quarantaine et on remet le compteur à zéro. */
 export async function releaseQuarantine(): Promise<void> {
     await getDb().runAsync('UPDATE orders SET quarantined = 0, push_attempts = 0 WHERE quarantined = 1');
+}
+
+// --- Journal des gestes de caisse ---
+
+/** Conservation locale d'un événement déjà reçu par le serveur. */
+const EVENT_RETENTION_DAYS = 7;
+
+export async function insertOrderEvents(events: OrderEvent[]): Promise<void> {
+    const now = new Date().toISOString();
+    await getDb().withExclusiveTransactionAsync(async (txn) => {
+        for (const e of events) {
+            await txn.runAsync(
+                'INSERT OR IGNORE INTO order_events (id, order_id, payload, synced, created_at) VALUES (?, ?, ?, 0, ?)',
+                e.id, e.order_id, JSON.stringify(e), now,
+            );
+        }
+    });
+}
+
+/** Les plus anciens d'abord : le journal remonte dans l'ordre du service. */
+export async function getPendingOrderEvents(limit: number): Promise<OrderEvent[]> {
+    const rows = await getDb().getAllAsync<{ payload: string }>(
+        'SELECT payload FROM order_events WHERE synced = 0 ORDER BY created_at, rowid LIMIT ?', limit,
+    );
+    return rows.map((r) => JSON.parse(r.payload));
+}
+
+export async function countPendingOrderEvents(): Promise<number> {
+    const row = await getDb().getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM order_events WHERE synced = 0');
+    return row?.n ?? 0;
+}
+
+/** state : 1 = reçu, 2 = refusé définitivement. */
+export async function markOrderEvents(ids: string[], state: 1 | 2): Promise<void> {
+    if (!ids.length) return;
+    const placeholders = ids.map(() => '?').join(',');
+    await getDb().runAsync(`UPDATE order_events SET synced = ? WHERE id IN (${placeholders})`, state, ...ids);
+    // Le serveur fait foi : la copie locale d'un événement reçu ne sert plus
+    // qu'au diagnostic, on ne la garde pas indéfiniment.
+    const limite = new Date(Date.now() - EVENT_RETENTION_DAYS * 86400000).toISOString();
+    await getDb().runAsync('DELETE FROM order_events WHERE synced = 1 AND created_at < ?', limite);
 }
 
 // --- File d'impression persistante ---

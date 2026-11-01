@@ -326,3 +326,33 @@ export interface Order {
     /** Fusion : commande dans laquelle celle-ci a été absorbée (traçabilité). */
     merged_into?: string | null;
 }
+
+/**
+ * Un geste sur une commande (cf. services/journal.ts) : ajout, envoi,
+ * annulation, paiement… avec la personne connectée et l'heure de l'appareil.
+ */
+export type OrderEventType =
+    | 'line_added' | 'qty_increased' | 'qty_decreased' | 'sent' | 'cancel_sent'
+    | 'price_changed' | 'note_changed' | 'split'
+    | 'payment_added' | 'payment_removed' | 'discount_set' | 'discount_cleared'
+    | 'order_cancelled' | 'order_paid';
+
+export interface OrderEvent {
+    id: string;
+    order_id: string;
+    order_line_id: string | null;
+    session_id: number | null;
+    type: OrderEventType;
+    name_snapshot: string | null;
+    qty_before: number | null;
+    qty_after: number | null;
+    /** Quantité déjà envoyée en cuisine au moment du geste. */
+    sent_qty_before: number | null;
+    unit_price: number | null;
+    price_before: number | null;
+    amount: number | null;
+    method: PaymentMethod | null;
+    user_id: number | null;
+    occurred_at: string;
+    meta: Record<string, unknown> | null;
+}

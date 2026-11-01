@@ -4,6 +4,7 @@ import type { Order, OrderLine, PaymentMethod, Product, SelectedOption, ServiceT
 import { uuidv4 } from '../utils/uuid';
 import { computeOrderTotals, discountAmountFor, lineTotal, optionsDelta, taxRateFor } from '../utils/pricing';
 import { schedulePush } from '../services/sync';
+import { recordChange, type JournalKind } from '../services/journal';
 import { useAuth } from './useAuth';
 import { useConfig } from './useConfig';
 import { useTables } from './useTables';
@@ -82,7 +83,11 @@ function persist(order: Order): void {
     void db.saveOrder(order).catch(() => {});
 }
 
-function commit(set: (o: { order: Order }) => void, order: Order): void {
+function commit(set: (o: { order: Order }) => void, order: Order, kind: JournalKind = 'edit'): void {
+    // Toute modification passe ici : c'est donc ici que le journal voit chaque
+    // geste, quel que soit l'écran d'où il vient. L'état précédent est lu
+    // AVANT d'être remplacé.
+    recordChange(useCart.getState().order, order, kind);
     set({ order });
     persist(order);
     schedulePush(); // remonte l'édition au serveur en continu (miroir temps réel)
@@ -287,7 +292,7 @@ export const useCart = create<CartState>((set, get) => ({
             const q = Math.max(0, l.qty - a.qty);
             return { ...l, qty: q, sent_qty: Math.min(l.sent_qty, q), line_total: lineTotal(l.unit_price_snapshot, optionsDelta(l.options_snapshot), q) };
         });
-        commit(set, recompute({ ...order, lines }));
+        commit(set, recompute({ ...order, lines }), 'split');
     },
 
     cancelOrder: () => {

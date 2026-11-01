@@ -5,6 +5,7 @@ import { uuidv4 } from '../utils/uuid';
 import { flushOutbox } from './sync';
 import { printCustomerReceipt } from './printing';
 import type { Order, OrderLine, PaymentMethod } from '../types';
+import { recordChange } from './journal';
 
 /**
  * Partage d'addition « par article » : chaque sous-ticket devient une commande
@@ -69,6 +70,9 @@ export function buildSubticket(parent: Order, assignments: SplitAssignment[], me
 /** Persiste le sous-ticket (outbox), imprime son reçu, pousse au serveur. */
 export async function settleSubticket(order: Order): Promise<boolean> {
     await db.saveOrder(order); // synced=0 -> part dans l'outbox
+    // Seuls l'encaissement et la clôture sont des gestes : les articles, eux,
+    // sont déjà journalisés côté table (« passé sur une addition séparée »).
+    recordChange({ ...order, status: 'open', payments: [] }, order, 'split');
     const printed = await printCustomerReceipt(order).catch(() => false);
     await flushOutbox();
     return printed;

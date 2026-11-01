@@ -27,6 +27,7 @@ import { mergeTables, transferTable } from '../services/tableOps';
 import { LOCALES, useLocale, useT } from '../i18n';
 import type { RoomDecoration, Table } from '../types';
 import type { RootStackParamList } from '../navigation/types';
+import { recordReleasedOrder } from '../services/journal';
 
 // Préférence locale : mode d'affichage choisi sur CET appareil.
 const VIEW_MODE_PREF = 'rooms_view_mode';
@@ -254,6 +255,10 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                         useTables.getState().free(table.id);
                         const current = useCart.getState().order;
                         if (current?.table_id === table.id) useCart.getState().clear();
+                        // Annulée hors du panier : on journalise ce qui était sur
+                        // la table avant qu'elle ne disparaisse.
+                        const released = await db.getOpenOrderForTable(table.id);
+                        if (released) recordReleasedOrder(released);
                         await db.releaseTable(table.id);
                         await flushOutbox(); // pousse l'annulation tout de suite (autoritaire)
                         void refreshTables();

@@ -1,10 +1,10 @@
 import * as db from '../db/database';
-import { fetchOpenOrders, fetchTableOrder, pushOrders } from '../api/client';
+import { fetchOpenOrders, fetchTableOrder, pushOrderEvents, pushOrders } from '../api/client';
 import { useAuth } from '../store/useAuth';
 import { useCart } from '../store/useCart';
 import { useRealtime } from '../store/useRealtime';
 import { guard } from '../utils/guard';
-import type { Order, PosSession } from '../types';
+import type { Order, OrderEvent, PosSession } from '../types';
 
 /**
  * Synchro montante (outbox) : pousse les commandes locales non synchronisées
@@ -117,9 +117,15 @@ async function pushBatch(batch: Order[]): Promise<{ accepted: number; networkDow
 }
 
 async function doFlushOutbox(): Promise<{ pushed: number; failed: boolean }> {
+    // Le journal part à chaque cycle, même sans commande en attente : un
+    // geste ne doit jamais rester sur la tablette parce que rien d'autre ne
+    // bougeait. Il ne bloque pas les commandes, qui passent d'abord.
     const outbox = await db.getOutbox();
     await refreshSyncIndicators();
-    if (!outbox.length) return { pushed: 0, failed: false };
+    if (!outbox.length) {
+        await flushOrderEvents();
+        return { pushed: 0, failed: false };
+    }
 
     let pushed = 0;
     let failed = false;
@@ -134,7 +140,54 @@ async function doFlushOutbox(): Promise<{ pushed: number; failed: boolean }> {
     }
 
     await refreshSyncIndicators();
+    await flushOrderEvents();
     return { pushed, failed };
+}
+
+/** Taille d'un lot du journal : des lignes courtes, le serveur en accepte 500. */
+const EVENTS_BATCH = 200;
+
+/**
+ * Envoie le journal des gestes de caisse, par lots, jusqu'à épuisement.
+ *
+ * Panne réseau : on s'arrête, la boucle rejouera. Refus (4xx) : on isole
+ * l'événement fautif en renvoyant un à un, et seul celui-là est écarté —
+ * un geste malformé ne doit pas bloquer tout le journal derrière lui.
+ */
+async function flushOrderEvents(): Promise<void> {
+    try {
+        for (;;) {
+            const pending = await db.getPendingOrderEvents(EVENTS_BATCH);
+            if (!pending.length) return;
+            if (!(await pushEventBatch(pending))) return;
+            if (pending.length < EVENTS_BATCH) return;
+        }
+    } catch (e: any) {
+        console.log('[journal] envoi en erreur', e?.message ?? e);
+    }
+}
+
+/** true si le lot est traité (reçu ou écarté), false si le réseau est coupé. */
+async function pushEventBatch(batch: OrderEvent[]): Promise<boolean> {
+    try {
+        const res = await pushOrderEvents(batch);
+        await db.markOrderEvents(res.accepted ?? batch.map((e) => e.id), 1);
+        return true;
+    } catch (e: any) {
+        // 404 : serveur pas encore mis à jour (route absente). Ce n'est pas un
+        // refus du geste — on garde tout et on réessaiera, sinon une app livrée
+        // avant le serveur jetterait le journal entier.
+        if (!isRejection(e) || e?.response?.status === 404) return false;
+        if (batch.length === 1) {
+            console.log('[journal] événement refusé, écarté :', batch[0].type, errorMessage(e));
+            await db.markOrderEvents([batch[0].id], 2);
+            return true;
+        }
+        for (const one of batch) {
+            if (!(await pushEventBatch([one]))) return false;
+        }
+        return true;
+    }
 }
 
 /** Alimente la pastille : reste à envoyer + commandes écartées. */

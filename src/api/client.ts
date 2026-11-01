@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { NETWORK } from '../config';
-import type { BootstrapPayload, Order, PosSession, Profile } from '../types';
+import type { BootstrapPayload, Order, OrderEvent, PosSession, Profile } from '../types';
 
 /**
  * Client API. baseURL et token sont injectés dynamiquement (configureApi),
@@ -89,6 +89,12 @@ export async function pushOrders(
     orders: Order[],
 ): Promise<{ accepted: { id: string; version: number; order?: Order }[] }> {
     const res = await api.post('/sync/orders', { orders });
+    return res.data;
+}
+
+/** Pousse un lot du journal des gestes ; renvoie les identifiants reçus. */
+export async function pushOrderEvents(events: OrderEvent[]): Promise<{ accepted: string[] }> {
+    const res = await api.post('/sync/events', { events });
     return res.data;
 }
 
