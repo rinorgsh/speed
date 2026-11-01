@@ -521,7 +521,7 @@ export function buildReceipt(
     order: Order,
     lines: OrderLine[],
     settings: Record<string, string | null>,
-    meta: { tableLabel: string | null },
+    meta: { tableLabel: string | null; cashierNames?: string[] },
 ): Buffer {
     const b = new EscPosBuilder().init();
 
@@ -611,6 +611,11 @@ export function buildReceipt(
     b.feed();
     for (const p of order.payments) {
         b.twoCols(p.method === 'cash' ? rt('Especes') : rt('Carte'), euro(p.amount));
+    }
+    // Qui a encaissé — pas forcément le serveur qui a pris la commande. Absent
+    // (et donc omis) sur les paiements enregistrés avant que la caisse le note.
+    if (meta.cashierNames?.length) {
+        b.line(`${rt('Caissier')}: ${meta.cashierNames.join(', ')}`);
     }
 
     b.feed().align('center').line(settings.receipt_footer ?? rt('Merci !'));

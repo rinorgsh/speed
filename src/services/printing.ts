@@ -195,7 +195,11 @@ export async function printCustomerReceipt(order: Order): Promise<boolean> {
     // serveur cherchent des yeux, bien avant le numéro de ticket.
     const meta = await orderMeta(order);
     const activeLines = order.lines.filter((l) => !l.voided && l.qty > 0);
-    const data = buildReceipt(order, activeLines, settings, { tableLabel: meta.tableLabel });
+    const { users } = useConfig.getState();
+    const cashierNames = [...new Set(order.payments.map((p) => p.user_id).filter((id) => id != null))]
+        .map((id) => users.find((u) => u.id === id)?.name)
+        .filter((name): name is string => !!name);
+    const data = buildReceipt(order, activeLines, settings, { tableLabel: meta.tableLabel, cashierNames });
     const ok = await enqueuePrint(printer, data, `Ticket client${order.ticket_number ? ` #${order.ticket_number}` : ''}`);
 
     // Ouverture du tiroir-caisse si un paiement cash a eu lieu.

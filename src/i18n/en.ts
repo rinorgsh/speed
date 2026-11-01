@@ -174,6 +174,7 @@ export const en: Record<string, string> = {
     'ADDITION': 'BILL',
     'Document non fiscal': 'Not a fiscal document',
     'Serveur': 'Server',
+    'Caissier': 'Cashier',
     'A PAYER': 'TO PAY',
     'Ticket de caisse remis apres paiement.': 'Receipt issued after payment.',
 

@@ -175,6 +175,7 @@ export const nl: Record<string, string> = {
     'ADDITION': 'REKENING',
     'Document non fiscal': 'Geen fiscaal document',
     'Serveur': 'Kelner',
+    'Caissier': 'Kassier',
     'A PAYER': 'TE BETALEN',
     'Ticket de caisse remis apres paiement.': 'Kassaticket na betaling.',
 
