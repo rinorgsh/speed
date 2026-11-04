@@ -258,7 +258,7 @@ export function RoomsScreen({ navigation }: NativeStackScreenProps<RootStackPara
                         // Annulée hors du panier : on journalise ce qui était sur
                         // la table avant qu'elle ne disparaisse.
                         const released = await db.getOpenOrderForTable(table.id);
-                        if (released) recordReleasedOrder(released);
+                        if (released) await recordReleasedOrder(released);
                         await db.releaseTable(table.id);
                         await flushOutbox(); // pousse l'annulation tout de suite (autoritaire)
                         void refreshTables();

@@ -137,23 +137,16 @@ export function diffOrder(prev: Order | null, next: Order, kind: JournalKind = '
     return out;
 }
 
-/** Écrit les gestes dans la file locale. Ne lève jamais : le service passe avant le journal. */
-export function record(events: OrderEvent[]): void {
-    if (!events.length) return;
-    void db.insertOrderEvents(events).catch((e) => console.log('[journal] écriture impossible', e?.message ?? e));
-}
-
-/** Raccourci : journalise le passage de `prev` à `next`. */
-export function recordChange(prev: Order | null, next: Order, kind: JournalKind = 'edit'): void {
-    record(diffOrder(prev, next, kind));
-}
-
 /**
  * Table libérée : la commande est annulée hors du panier, directement en base.
  * On note ce qui était dessus, y compris ce qui était déjà parti en cuisine.
+ *
+ * Les autres gestes ne passent PAS par ici : ils sont écrits avec la commande,
+ * dans la même transaction (`db.saveOrder(order, false, events)`). Ne lève
+ * jamais : le service passe avant le journal.
  */
-export function recordReleasedOrder(order: Order): void {
-    record([event(order, 'order_cancelled', {
+export async function recordReleasedOrder(order: Order): Promise<void> {
+    await db.insertOrderEvents([event(order, 'order_cancelled', {
         amount: order.total,
         meta: {
             via: 'release_table',
@@ -161,5 +154,5 @@ export function recordReleasedOrder(order: Order): void {
                 .filter((l) => l.qty > 0)
                 .map((l) => ({ name: l.name_snapshot, qty: l.qty, sent_qty: l.sent_qty })),
         },
-    })]);
+    })]).catch((e) => console.log('[journal] écriture impossible', e?.message ?? e));
 }

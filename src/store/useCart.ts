@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import * as db from '../db/database';
-import type { Order, OrderLine, PaymentMethod, Product, SelectedOption, ServiceType } from '../types';
+import type { Order, OrderEvent, OrderLine, PaymentMethod, Product, SelectedOption, ServiceType } from '../types';
 import { uuidv4 } from '../utils/uuid';
 import { computeOrderTotals, discountAmountFor, lineTotal, optionsDelta, taxRateFor } from '../utils/pricing';
 import { schedulePush } from '../services/sync';
-import { recordChange, type JournalKind } from '../services/journal';
+import { diffOrder, type JournalKind } from '../services/journal';
 import { useAuth } from './useAuth';
 import { useConfig } from './useConfig';
 import { useTables } from './useTables';
@@ -79,17 +79,25 @@ function discountMaxPercent(): number {
     return Number.isFinite(n) ? Math.min(Math.max(n, 0), 100) : 100;
 }
 
-function persist(order: Order): void {
-    void db.saveOrder(order).catch(() => {});
+function persist(order: Order, events: OrderEvent[] = []): void {
+    // Une sauvegarde perdue est un paiement ou un article perdu : on le dit.
+    void db.saveOrder(order, false, events).catch((e) => console.log('[panier] sauvegarde impossible', e?.message ?? e));
 }
 
 function commit(set: (o: { order: Order }) => void, order: Order, kind: JournalKind = 'edit'): void {
     // Toute modification passe ici : c'est donc ici que le journal voit chaque
     // geste, quel que soit l'écran d'où il vient. L'état précédent est lu
-    // AVANT d'être remplacé.
-    recordChange(useCart.getState().order, order, kind);
+    // AVANT d'être remplacé, et les gestes partent avec la commande, dans la
+    // même écriture.
+    let events: OrderEvent[] = [];
+    try {
+        events = diffOrder(useCart.getState().order, order, kind);
+    } catch (e: any) {
+        // Le journal ne doit jamais empêcher d'enregistrer la commande.
+        console.log('[journal] diff impossible', e?.message ?? e);
+    }
     set({ order });
-    persist(order);
+    persist(order, events);
     schedulePush(); // remonte l'édition au serveur en continu (miroir temps réel)
 }
 

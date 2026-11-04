@@ -33,7 +33,9 @@ let db: SQLite.SQLiteDatabase | null = null;
 export async function openDb(): Promise<SQLite.SQLiteDatabase> {
     if (db) return db;
     db = await SQLite.openDatabaseAsync('pos.db');
-    await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+    // busy_timeout : une écriture qui tombe pendant une transaction exclusive
+    // attend son tour au lieu d'échouer aussitôt avec « database is locked ».
+    await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     await migrate(db);
     return db;
 }
@@ -442,11 +444,21 @@ export async function upsertCategory(c: Category): Promise<void> {
 
 // synced=false (défaut) : édition locale -> à pousser (outbox). synced=true : ordre
 // reçu du serveur (temps réel / pull) -> déjà à jour, ne pas re-pousser.
-export async function saveOrder(order: Order, synced = false): Promise<void> {
+//
+// `events` : gestes du journal (services/journal.ts) écrits DANS LA MÊME
+// transaction. Incident du 01-04/11/2026 : écrits dans une transaction exclusive
+// séparée et simultanée, ils faisaient échouer la sauvegarde de la commande
+// (« database is locked », expo-sqlite) — un paiement affiché mais jamais
+// enregistré, la table revenait avec ses produits.
+export async function saveOrder(order: Order, synced = false, events: OrderEvent[] = []): Promise<void> {
     const d = getDb();
     // Exclusive : plusieurs sauvegardes (panier + temps réel + pull) peuvent se
     // chevaucher ; sans isolation elles s'entremêlent dans la même transaction.
     await d.withExclusiveTransactionAsync(async (txn) => {
+        // La transaction a sa PROPRE connexion, sans le busy_timeout de la
+        // principale : sans lui, une sauvegarde qui en croise une autre (panier
+        // + temps réel) échoue aussitôt au lieu d'attendre quelques ms.
+        await txn.execAsync('PRAGMA busy_timeout = 5000');
         await txn.runAsync(
             `INSERT OR REPLACE INTO orders
        (id, profile_id, ticket_number, version, session_id, room_id, table_id, server_id, status, merged_into, service_type, covers, subtotal, tax_total, total,
@@ -477,6 +489,13 @@ export async function saveOrder(order: Order, synced = false): Promise<void> {
                 l.id, l.order_id, l.position ?? i + 1, l.server_id ?? null, l.product_id, l.name_snapshot, l.qty, l.unit_price_snapshot,
                 l.tax_rate_snapshot, l.price_includes_tax_snapshot ? 1 : 0, JSON.stringify(l.options_snapshot ?? []),
                 l.note, l.line_total, l.sent_at, l.sent_qty ?? 0, l.voided ? 1 : 0, l.void_reason, l.voided_by,
+            );
+        }
+        const now = new Date().toISOString();
+        for (const e of events) {
+            await txn.runAsync(
+                'INSERT OR IGNORE INTO order_events (id, order_id, payload, synced, created_at) VALUES (?, ?, ?, 0, ?)',
+                e.id, e.order_id, JSON.stringify(e), now,
             );
         }
     });
@@ -809,16 +828,19 @@ export async function releaseQuarantine(): Promise<void> {
 /** Conservation locale d'un événement déjà reçu par le serveur. */
 const EVENT_RETENTION_DAYS = 7;
 
+/**
+ * Gestes hors commande (table libérée). Requêtes simples, SANS transaction
+ * exclusive : celle-ci bloquerait les sauvegardes de commandes concurrentes.
+ * Pour tout geste lié à une sauvegarde, passer par `saveOrder(…, events)`.
+ */
 export async function insertOrderEvents(events: OrderEvent[]): Promise<void> {
     const now = new Date().toISOString();
-    await getDb().withExclusiveTransactionAsync(async (txn) => {
-        for (const e of events) {
-            await txn.runAsync(
-                'INSERT OR IGNORE INTO order_events (id, order_id, payload, synced, created_at) VALUES (?, ?, ?, 0, ?)',
-                e.id, e.order_id, JSON.stringify(e), now,
-            );
-        }
-    });
+    for (const e of events) {
+        await getDb().runAsync(
+            'INSERT OR IGNORE INTO order_events (id, order_id, payload, synced, created_at) VALUES (?, ?, ?, 0, ?)',
+            e.id, e.order_id, JSON.stringify(e), now,
+        );
+    }
 }
 
 /** Les plus anciens d'abord : le journal remonte dans l'ordre du service. */
